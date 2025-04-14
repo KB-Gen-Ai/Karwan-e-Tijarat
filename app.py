@@ -13,24 +13,22 @@ def generate_pdf(member_data):
     pdf.add_page()
     pdf.set_font("Arial", size=12)
     pdf.cell(200, 10, txt="Karwan-e-Tijarat Profile", ln=True, align='C')
-    pdf.ln(10)
     
-    fields = [
-        ("Name", member_data.get('full_name', '')),
-        ("Profession", member_data.get('profession', '')),
-        ("Expertise", member_data.get('expertise', '')),
-        ("Location", member_data.get('location', '')),
-        ("Experience", str(member_data.get('experience', 0)) + " years",
-        ("Bio", member_data.get('bio', ''))
-    ]
+    safe_data = {
+        'full_name': member_data.get('full_name', 'Not provided'),
+        'profession': member_data.get('profession', 'Not provided'),
+        'expertise': member_data.get('expertise', 'Not provided'),
+        'location': member_data.get('location', 'Not provided'),
+        'experience': str(member_data.get('experience', 0)) + " years",
+        'bio': member_data.get('bio', 'Not provided')
+    }
     
-    for label, value in fields:
-        if value:  # Only add non-empty fields
-            pdf.cell(200, 10, txt=f"{label}: {value}", ln=True)
+    for field, value in safe_data.items():
+        pdf.cell(200, 10, txt=f"{field.replace('_', ' ').title()}: {value}", ln=True)
     
     try:
         return pdf.output(dest='S').encode('latin1')
-    except AttributeError:
+    except:
         return pdf.output(dest='S').encode('utf-8')
 
 def profile_section():
