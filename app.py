@@ -30,14 +30,21 @@ def generate_pdf(member_data):
     
     for label, value in fields:
         pdf.cell(200, 10, txt=f"{label}: {value}", ln=1)
-    
-    return pdf.output(dest='S')
+
+    # Convert PDF to bytes for download
+    return bytes(pdf.output(dest='S').encode('latin1'))
 
 def profile_section():
     """Display and edit user profile"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("SELECT * FROM members WHERE email=?", (st.session_state.user_email,))
+
+    user_email = st.session_state.get("user_email")
+    if not user_email:
+        st.error("User session not found. Please log in again.")
+        st.stop()
+
+    c.execute("SELECT * FROM members WHERE email=?", (user_email,))
     data = c.fetchone()
     
     if data:
@@ -63,7 +70,7 @@ def profile_section():
                     location=?, experience=?, bio=?
                     WHERE email=?""",
                     (name, profession, expertise, location,
-                     experience, bio, st.session_state.user_email))
+                     experience, bio, user_email))
                 conn.commit()
                 st.success("Profile updated!")
             
@@ -95,9 +102,9 @@ def search_members():
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("""SELECT full_name, profession, expertise, location, email 
-                   FROM members 
-                   WHERE full_name LIKE ? OR profession LIKE ? OR location LIKE ?""",
-                   (f"%{search}%", f"%{search}%", f"%{search}%"))
+                     FROM members 
+                     WHERE full_name LIKE ? OR profession LIKE ? OR location LIKE ?""",
+                  (f"%{search}%", f"%{search}%", f"%{search}%"))
         results = c.fetchall()
         
         if results:
@@ -111,7 +118,7 @@ def search_members():
         conn.close()
 
 # Main app flow
-if not st.session_state.logged_in:
+if not st.session_state.get("logged_in"):
     auth_section()
     st.stop()
 
