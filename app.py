@@ -11,14 +11,17 @@ def generate_pdf(member_data):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
+    
+    # Add content
     pdf.cell(200, 10, txt="Karwan-e-Tijarat Profile", ln=True, align='C')
+    pdf.ln(10)
     
     fields = [
         ("Name", member_data['full_name']),
         ("Profession", member_data['profession']),
         ("Expertise", member_data['expertise']),
         ("Location", member_data['location']),
-        ("Experience", str(member_data['experience']) + " years"),
+        ("Experience", f"{member_data['experience']} years"),
         ("Bio", member_data['bio'])
     ]
     
@@ -34,17 +37,20 @@ def profile_section():
     data = c.fetchone()
     
     if data:
-        cols = st.columns(2)
-        with cols[0]:
-            with st.form("Profile"):
-                name = st.text_input("Full Name", value=data[1])
-                profession = st.text_input("Profession", value=data[2])
-                expertise = st.text_input("Expertise", value=data[3])
-                location = st.text_input("Location", value=data[6])
-                experience = st.number_input("Experience", value=data[7])
-                bio = st.text_area("Bio", value=data[10])
-                
-                if st.form_submit_button("Update"):
+        with st.container():
+            st.header("My Profile")
+            
+            name = st.text_input("Full Name", value=data[1])
+            profession = st.text_input("Profession", value=data[2])
+            expertise = st.text_input("Expertise", value=data[3])
+            location = st.text_input("Location", value=data[6])
+            experience = st.number_input("Experience (years)", value=data[7])
+            bio = st.text_area("Bio", value=data[10], height=150)
+            
+            # Action buttons at bottom
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Update Profile"):
                     c.execute("""UPDATE members SET
                         full_name=?, profession=?, expertise=?,
                         location=?, experience=?, bio=?
@@ -53,22 +59,20 @@ def profile_section():
                          experience, bio, st.session_state.user_email))
                     conn.commit()
                     st.success("Profile updated!")
-        
-        with cols[1]:
-            if st.button("Generate PDF"):
-                member_data = {
+            
+            with col2:
+                pdf_bytes = generate_pdf({
                     'full_name': name,
                     'profession': profession,
                     'expertise': expertise,
                     'location': location,
                     'experience': experience,
                     'bio': bio
-                }
-                pdf_bytes = generate_pdf(member_data)
+                })
                 st.download_button(
-                    label="Download Profile",
+                    label="Download PDF Profile",
                     data=pdf_bytes,
-                    file_name=f"{name}_profile.pdf",
+                    file_name=f"profile_{name}.pdf",
                     mime="application/pdf"
                 )
     conn.close()
