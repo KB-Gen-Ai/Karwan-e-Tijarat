@@ -1,5 +1,8 @@
 streamlit
-fpdf2
-uuid
+pandas
+sqlite3
 python-dateutil
-qrcode[pil]  # For QR code generation
+fpdf2
+qrcode[pil]
+Pillow
+uuid
