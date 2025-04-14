@@ -1,12 +1,13 @@
 import sqlite3
 import os
-from uuid import uuid4
+from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "karwan_tijarat.db")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    
     c.execute('''CREATE TABLE IF NOT EXISTS members
                  (id TEXT PRIMARY KEY,
                   full_name TEXT NOT NULL,
