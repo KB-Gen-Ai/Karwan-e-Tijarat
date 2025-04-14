@@ -1,6 +1,5 @@
 import sqlite3
 import os
-from datetime import datetime
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "karwan_tijarat.db")
 
@@ -20,6 +19,7 @@ def init_db():
                   can_help TEXT NOT NULL,
                   needs_help TEXT,
                   bio TEXT,
+                  password TEXT,
                   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
     conn.commit()
     conn.close()
