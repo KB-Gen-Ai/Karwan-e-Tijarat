@@ -1,3 +1,4 @@
 streamlit
 sqlite3
 uuid
+python-dateutil
