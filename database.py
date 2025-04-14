@@ -7,7 +7,11 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
-    c.execute('''CREATE TABLE IF NOT EXISTS members
+    # Drop existing table (reset)
+    c.execute("DROP TABLE IF EXISTS members")
+    
+    # Create fresh table with password column
+    c.execute('''CREATE TABLE members
                  (id TEXT PRIMARY KEY,
                   full_name TEXT NOT NULL,
                   profession TEXT NOT NULL,
