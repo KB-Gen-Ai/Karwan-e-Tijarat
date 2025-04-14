@@ -2,11 +2,12 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 from io import BytesIO
-from fpdf import FPDF
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 import qrcode
 from datetime import datetime
 
-# Initialize database (without auth)
+# Initialize database
 DB_PATH = "karwan_tijarat.db"
 
 def init_db():
@@ -24,60 +25,42 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Initialize DB
 init_db()
 
-# --- Main App ---
-st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
-st.markdown("<h1 style='text-align: center;'>🌍 Karwan-e-Tijarat</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Professional Network for National Brand Building</p>", unsafe_allow_html=True)
-st.markdown("---")
-
-# --- Profile Management ---
-def save_profile(profile_data):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''INSERT OR REPLACE INTO members 
-                 (id, full_name, email, phone, profession, expertise, how_to_help) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
-              (profile_data['id'],
-               profile_data['full_name'],
-               profile_data['email'],
-               profile_data['phone'],
-               profile_data['profession'],
-               profile_data['expertise'],
-               profile_data['how_to_help']))
-    conn.commit()
-    conn.close()
-
-def get_profile_by_id(profile_id):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT * FROM members WHERE id=?", (profile_id,))
-    result = c.fetchone()
-    conn.close()
-    return result
-
+# --- PDF Generator (using ReportLab) ---
 def generate_pdf(profile_data):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Karwan-e-Tijarat Profile", ln=1, align='C')
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer, pagesize=letter)
     
+    # Header
+    p.setFont("Helvetica-Bold", 18)
+    p.drawCentredString(300, 750, "Karwan-e-Tijarat Profile")
+    p.line(50, 740, 550, 740)
+    
+    # Profile Data
+    p.setFont("Helvetica", 12)
+    y_position = 700
     fields = [
-        ("Name", profile_data[1]),
-        ("Email", profile_data[2]),
-        ("Phone", profile_data[3]),
-        ("Profession", profile_data[4]),
-        ("Expertise", profile_data[5]),
-        ("How I Can Help", profile_data[6])
+        ("Name", profile_data['full_name']),
+        ("Email", profile_data['email']),
+        ("Phone", profile_data['phone']),
+        ("Profession", profile_data['profession']),
+        ("Expertise", profile_data['expertise']),
+        ("How I Can Help", profile_data['how_to_help'])
     ]
     
     for label, value in fields:
-        pdf.cell(200, 10, txt=f"{label}: {value}", ln=1)
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(100, y_position, f"{label}:")
+        p.setFont("Helvetica", 12)
+        p.drawString(200, y_position, str(value))
+        y_position -= 30
     
-    return pdf.output(dest='S').encode('latin1')
+    p.save()
+    buffer.seek(0)
+    return buffer.getvalue()
 
+# --- QR Code Generator ---
 def generate_qr_code(url):
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
     qr.add_data(url)
@@ -87,21 +70,27 @@ def generate_qr_code(url):
     img.save(buf)
     return buf.getvalue()
 
-# --- Main Profile Form ---
+# --- Streamlit UI ---
+st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
+st.title("🌍 Karwan-e-Tijarat")
+st.markdown("Professional Network for National Brand Building")
+st.divider()
+
+# --- Profile Form ---
 with st.form("profile_form"):
-    st.subheader("📝 Create/Update Your Profile")
+    st.subheader("📝 Your Profile")
     
-    full_name = st.text_input("👤 Full Name")
-    email = st.text_input("📧 Email")
-    phone = st.text_input("📱 Phone")
-    profession = st.text_input("💼 Profession")
-    expertise = st.text_area("📚 Expertise")
-    how_to_help = st.text_area("🤝 How You Can Help Others")
+    full_name = st.text_input("Full Name")
+    email = st.text_input("Email")
+    phone = st.text_input("Phone")
+    profession = st.text_input("Profession")
+    expertise = st.text_area("Areas of Expertise")
+    how_to_help = st.text_area("How You Can Help Others")
     
-    submitted = st.form_submit_button("💾 Save Profile")
+    submitted = st.form_submit_button("Save Profile")
 
 if submitted:
-    profile_id = str(datetime.now().timestamp())  # Simple ID generation
+    profile_id = str(datetime.now().timestamp())
     profile_data = {
         'id': profile_id,
         'full_name': full_name,
@@ -112,18 +101,31 @@ if submitted:
         'how_to_help': how_to_help
     }
     
-    save_profile(profile_data)
+    # Save to DB
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT OR REPLACE INTO members 
+                 (id, full_name, email, phone, profession, expertise, how_to_help) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+              (profile_id, full_name, email, phone, profession, expertise, how_to_help))
+    conn.commit()
+    conn.close()
+    
     st.success("Profile saved successfully!")
     
     # Generate shareable link
-    profile_url = f"?profile_id={profile_id}"
+    profile_url = f"{st.experimental_get_query_params().get('_', [''])[0]}?profile_id={profile_id}"
     qr_img = generate_qr_code(profile_url)
     
-    st.image(qr_img, caption="Scan to share your profile", width=200)
-    st.markdown(f"**Shareable link:** `{profile_url}`")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(qr_img, caption="Scan to share", width=200)
+    with col2:
+        st.write("**Shareable Link:**")
+        st.code(profile_url)
     
     # PDF Download
-    pdf_bytes = generate_pdf(get_profile_by_id(profile_id))
+    pdf_bytes = generate_pdf(profile_data)
     st.download_button(
         "📄 Download Profile PDF",
         data=pdf_bytes,
@@ -132,7 +134,7 @@ if submitted:
     )
 
 # --- Search Functionality ---
-st.markdown("---")
+st.divider()
 st.subheader("🔍 Search Professionals")
 
 search_term = st.text_input("Search by name, profession or expertise")
@@ -146,6 +148,7 @@ if st.button("Search"):
     results = c.fetchall()
     
     if results:
+        st.write(f"Found {len(results)} professionals:")
         for name, prof, exp, email, phone in results:
             with st.expander(f"{name} - {prof}"):
                 st.write(f"**Expertise:** {exp}")
