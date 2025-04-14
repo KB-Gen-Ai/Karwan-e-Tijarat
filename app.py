@@ -18,7 +18,6 @@ def generate_pdf(member_data):
     pdf.cell(200, 10, txt="Karwan-e-Tijarat Profile", ln=1, align='C')
     pdf.ln(10)
     
-    # Profile fields
     fields = [
         ("Name", member_data['full_name']),
         ("Profession", member_data['profession']),
@@ -31,8 +30,11 @@ def generate_pdf(member_data):
     for label, value in fields:
         pdf.cell(200, 10, txt=f"{label}: {value}", ln=1)
 
-    # Convert PDF to bytes for download
-    return bytes(pdf.output(dest='S').encode('latin1'))
+    # Handle output depending on FPDF version
+    output = pdf.output(dest='S')
+    if isinstance(output, str):
+        return output.encode('latin1')  # FPDF (old)
+    return output  # FPDF2 returns bytes
 
 def profile_section():
     """Display and edit user profile"""
