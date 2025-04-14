@@ -31,7 +31,7 @@ def generate_pdf(member_data):
     for label, value in fields:
         pdf.cell(200, 10, txt=f"{label}: {value}", ln=1)
     
-    return pdf.output(dest='S').encode('latin1')
+    return pdf.output(dest='S')
 
 def profile_section():
     """Display and edit user profile"""
