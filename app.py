@@ -1,220 +1,122 @@
 import streamlit as st
-import sqlite3
-import re
-import qrcode  # For generating QR codes
-from fpdf import FPDF
-from database import init_db, DB_PATH
+import pandas as pd
+import uuid
+from database import save_profile, get_profile_by_id, init_db, DB_PATH
 from auth import check_login, auth_section
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.base import MIMEBase
-from email import encoders
-import os
+from pdf_generator import generate_pdf
+from qr_generator import generate_qr_code
 
 # Initialize database and auth
 init_db()
 check_login()
 
-# Function to generate the PDF
-def generate_pdf(member_data, img_path=None):
-    """Generate PDF document from member data, including profile picture and QR code."""
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    
-    # Add title
-    pdf.cell(200, 10, txt="Karwan-e-Tijarat Profile", ln=1, align='C')
-    pdf.ln(10)
-    
-    # Profile fields
-    fields = [
-        ("Name", member_data['full_name']),
-        ("Profession", member_data['profession']),
-        ("Expertise", member_data['expertise']),
-        ("Location", member_data['location']),
-        ("Experience", f"{member_data['experience']} years"),
-        ("Bio", member_data['bio'])
-    ]
-    
-    # Add profile fields
-    for label, value in fields:
-        pdf.cell(200, 10, txt=f"{label}: {value}", ln=1)
+# Set page config
+st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
 
-    # Add profile picture if available
-    if img_path:
-        pdf.ln(10)
-        pdf.cell(200, 10, txt="Profile Picture", ln=1)
-        pdf.image(img_path, x=10, y=pdf.get_y(), w=30)  # Adjust position/size if needed
+# 🌍 Display banner
+st.markdown("<h1 style='text-align: center;'>🌍 Karwan-e-Tijarat</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>Connecting professionals for collaboration and national brand-building.</p>", unsafe_allow_html=True)
+st.markdown("---")
 
-    # Add QR code with email
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=10,
-        border=4,
-    )
-    qr.add_data(f"mailto:{member_data['email']}")
-    qr.make(fit=True)
+# --- Handle shared profile link ---
+query_params = st.query_params
+if "profile_id" in query_params:
+    profile_id = query_params["profile_id"][0]
+    profile_data = get_profile_by_id(profile_id)
 
-    qr_img = qr.make_image(fill="black", back_color="white")
-    qr_img_path = "qr_code.png"
-    qr_img.save(qr_img_path)
+    if profile_data:
+        st.subheader("📄 Public Profile View (Read-Only)")
 
-    # Add QR code to PDF
-    pdf.ln(10)
-    pdf.cell(200, 10, txt="QR Code (Scan to Email)", ln=1)
-    pdf.image(qr_img_path, x=10, y=pdf.get_y(), w=30)  # Adjust position/size if needed
+        st.write(f"**Name:** {profile_data['full_name']}")
+        st.write(f"**Email:** {profile_data['email']}")
+        st.write(f"**Phone:** {profile_data['phone']}")
+        st.write(f"**Profession:** {profile_data['profession']}")
+        st.write(f"**Expertise:** {profile_data['expertise']}")
+        st.write(f"**How I Can Help:** {profile_data['how_to_help']}")
 
-    # Output PDF
-    output = pdf.output(dest='S')
-    if isinstance(output, str):
-        output = output.encode('latin1')
-    return output if output else None
+        if st.button("📄 Download Profile as PDF"):
+            pdf_bytes = generate_pdf(profile_data)
+            st.download_button(
+                label="Download PDF",
+                data=pdf_bytes,
+                file_name=f"{profile_data['full_name']}_profile.pdf",
+                mime="application/pdf"
+            )
 
-# Function to send email with the PDF
-def send_email(pdf_data, user_email):
-    """Send the PDF via email."""
-    from_email = "your_email@example.com"  # Replace with your email
-    to_email = user_email
-
-    # Set up the MIME
-    msg = MIMEMultipart()
-    msg['From'] = from_email
-    msg['To'] = to_email
-    msg['Subject'] = "Your Karwan-e-Tijarat Profile PDF"
-
-    # Attach the PDF to the email
-    part = MIMEBase('application', 'octet-stream')
-    part.set_payload(pdf_data)
-    encoders.encode_base64(part)
-    part.add_header('Content-Disposition', f"attachment; filename=profile.pdf")
-    msg.attach(part)
-
-    # Send email
-    try:
-        with smtplib.SMTP('smtp.example.com', 587) as server:  # Replace with your SMTP server
-            server.starttls()
-            server.login(from_email, "your_password")  # Replace with your email login credentials
-            server.sendmail(from_email, to_email, msg.as_string())
-        st.success("PDF sent to your email!")
-    except Exception as e:
-        st.error(f"Error sending email: {e}")
-
-# Profile section for users to update their profiles
-def profile_section():
-    """Display and edit user profile"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-
-    user_email = st.session_state.get("user_email")
-    if not user_email:
-        st.error("User session not found. Please log in again.")
+        st.stop()
+    else:
+        st.error("❌ Profile not found.")
         st.stop()
 
-    c.execute("SELECT * FROM members WHERE email=?", (user_email,))
-    data = c.fetchone()
-
-    if data:
-        st.header("My Profile")
-
-        # Profile form
-        with st.form("profile_form"):
-            name = st.text_input("Full Name", value=data[1])
-            profession = st.text_input("Profession", value=data[2])
-            expertise = st.text_input("Expertise", value=data[3])
-            location = st.text_input("Location", value=data[6])
-            experience = st.number_input("Experience (years)", value=data[7])
-            bio = st.text_area("Bio", value=data[10], height=150)
-            profile_pic = st.file_uploader("Upload Profile Picture", type=["jpg", "jpeg", "png"])
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                update_btn = st.form_submit_button("Update Profile")
-
-            if update_btn:
-                # If profile picture is uploaded, save it
-                img_path = None
-                if profile_pic:
-                    img_path = f"images/{user_email}_profile_pic.jpg"
-                    with open(img_path, "wb") as f:
-                        f.write(profile_pic.getbuffer())
-
-                # Update profile in the database
-                c.execute("""UPDATE members SET
-                    full_name=?, profession=?, expertise=?,
-                    location=?, experience=?, bio=?,
-                    profile_pic=? WHERE email=?""",
-                    (name, profession, expertise, location,
-                     experience, bio, img_path, user_email))
-                conn.commit()
-                st.success("Profile updated!")
-
-            with col2:
-                if st.form_submit_button("Generate PDF"):
-                    # Generate PDF
-                    pdf_data = generate_pdf({
-                        'full_name': name,
-                        'profession': profession,
-                        'expertise': expertise,
-                        'location': location,
-                        'experience': experience,
-                        'bio': bio,
-                        'email': user_email
-                    }, img_path)
-
-                    if pdf_data:
-                        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', name)
-                        st.download_button(
-                            label="Download PDF",
-                            data=pdf_data,
-                            file_name=f"{safe_name}_profile.pdf",
-                            mime="application/pdf"
-                        )
-
-                        # Option to email the PDF
-                        if st.button("Email PDF"):
-                            send_email(pdf_data, user_email)
-                    else:
-                        st.warning("PDF generation failed. Please try again.")
-
-    conn.close()
-
-# Member search section
-def search_members():
-    """Search professionals"""
-    st.header("Find Professionals")
-    search = st.text_input("Search by name, profession or location")
-
-    if st.button("Search"):
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("""SELECT full_name, profession, expertise, location, email 
-                     FROM members 
-                     WHERE full_name LIKE ? OR profession LIKE ? OR location LIKE ?""",
-                  (f"%{search}%", f"%{search}%", f"%{search}%"))
-        results = c.fetchall()
-
-        if results:
-            for name, prof, exp, loc, email in results:
-                st.markdown(f"**{name}** - *{prof}*")
-                st.markdown(f"📍 {loc} | 🛠️ {exp}")
-                with st.expander("Contact"):
-                    st.markdown(f"📧 {email}")
-        else:
-            st.warning("No matching professionals found")
-
-        conn.close()
-
-# Main app flow
-if not st.session_state.get("logged_in"):
+# --- Main profile form ---
+if not st.session_state.logged_in:
     auth_section()
     st.stop()
 
-st.sidebar.title("Menu")
-page = st.sidebar.radio("Navigation", ["My Profile", "Search Members"])
+st.subheader("📝 Register Your Profile")
 
-if page == "My Profile":
-    profile_section()
-else:
-    search_members()
+with st.form("profile_form"):
+    full_name = st.text_input("👤 Full Name")
+    email = st.text_input("📧 Email")
+    phone = st.text_input("📱 Phone Number")
+    profession = st.text_input("💼 Profession / Job Title")
+    expertise = st.text_area("📚 Areas of Expertise")
+    how_to_help = st.text_area("🤝 How Can You Help Other Members?")
+
+    submitted = st.form_submit_button("✅ Submit My Profile")
+
+if submitted:
+    profile_id = str(uuid.uuid4())
+
+    profile_data = {
+        "id": profile_id,
+        "full_name": full_name,
+        "email": email,
+        "phone": phone,
+        "profession": profession,
+        "expertise": expertise,
+        "how_to_help": how_to_help,
+    }
+
+    save_profile(profile_data)
+
+    profile_url = f"https://karwan-e-tijarat.streamlit.app/?profile_id={profile_id}"
+    qr_image = generate_qr_code(profile_url)
+
+    st.success("🎉 Your profile has been saved!")
+
+    st.markdown(f"🔗 **Share your profile:** [Click here to view]({profile_url})")
+    st.image(qr_image, caption="📱 Scan to view your profile", use_column_width=False)
+
+    st.download_button(
+        label="📄 Download Profile as PDF",
+        data=generate_pdf(profile_data),
+        file_name=f"{full_name}_profile.pdf",
+        mime="application/pdf"
+    )
+
+# Search functionality
+st.markdown("---")
+st.subheader("🔍 Search Members")
+
+search_term = st.text_input("Search by name, profession or expertise")
+if st.button("Search"):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""SELECT full_name, profession, expertise, email, phone 
+               FROM members 
+               WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
+               (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
+    results = c.fetchall()
+    
+    if results:
+        for name, prof, exp, email, phone in results:
+            st.markdown(f"### {name}")
+            st.markdown(f"**Profession:** {prof}")
+            st.markdown(f"**Expertise:** {exp}")
+            with st.expander("Contact Info"):
+                st.markdown(f"📧 {email}")
+                st.markdown(f"📱 {phone}")
+    else:
+        st.warning("No matching members found")
+    conn.close()
