@@ -1,103 +1,139 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-import uuid
-from database import save_profile, get_profile_by_id, init_db, DB_PATH
-from auth import check_login, auth_section
-from pdf_generator import generate_pdf
-from qr_generator import generate_qr_code
+from io import BytesIO
+from fpdf import FPDF
+import qrcode
+from datetime import datetime
 
-# Initialize database and auth
+# Initialize database (without auth)
+DB_PATH = "karwan_tijarat.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS members
+                 (id TEXT PRIMARY KEY,
+                  full_name TEXT NOT NULL,
+                  email TEXT UNIQUE NOT NULL,
+                  phone TEXT,
+                  profession TEXT NOT NULL,
+                  expertise TEXT NOT NULL,
+                  how_to_help TEXT NOT NULL,
+                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    conn.commit()
+    conn.close()
+
+# Initialize DB
 init_db()
-check_login()
 
-# Set page config
+# --- Main App ---
 st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
-
-# 🌍 Display banner
 st.markdown("<h1 style='text-align: center;'>🌍 Karwan-e-Tijarat</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Connecting professionals for collaboration and national brand-building.</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>Professional Network for National Brand Building</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# --- Handle shared profile link ---
-query_params = st.query_params
-if "profile_id" in query_params:
-    profile_id = query_params["profile_id"][0]
-    profile_data = get_profile_by_id(profile_id)
+# --- Profile Management ---
+def save_profile(profile_data):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''INSERT OR REPLACE INTO members 
+                 (id, full_name, email, phone, profession, expertise, how_to_help) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)''',
+              (profile_data['id'],
+               profile_data['full_name'],
+               profile_data['email'],
+               profile_data['phone'],
+               profile_data['profession'],
+               profile_data['expertise'],
+               profile_data['how_to_help']))
+    conn.commit()
+    conn.close()
 
-    if profile_data:
-        st.subheader("📄 Public Profile View (Read-Only)")
+def get_profile_by_id(profile_id):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("SELECT * FROM members WHERE id=?", (profile_id,))
+    result = c.fetchone()
+    conn.close()
+    return result
 
-        st.write(f"**Name:** {profile_data['full_name']}")
-        st.write(f"**Email:** {profile_data['email']}")
-        st.write(f"**Phone:** {profile_data['phone']}")
-        st.write(f"**Profession:** {profile_data['profession']}")
-        st.write(f"**Expertise:** {profile_data['expertise']}")
-        st.write(f"**How I Can Help:** {profile_data['how_to_help']}")
+def generate_pdf(profile_data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Karwan-e-Tijarat Profile", ln=1, align='C')
+    
+    fields = [
+        ("Name", profile_data[1]),
+        ("Email", profile_data[2]),
+        ("Phone", profile_data[3]),
+        ("Profession", profile_data[4]),
+        ("Expertise", profile_data[5]),
+        ("How I Can Help", profile_data[6])
+    ]
+    
+    for label, value in fields:
+        pdf.cell(200, 10, txt=f"{label}: {value}", ln=1)
+    
+    return pdf.output(dest='S').encode('latin1')
 
-        if st.button("📄 Download Profile as PDF"):
-            pdf_bytes = generate_pdf(profile_data)
-            st.download_button(
-                label="Download PDF",
-                data=pdf_bytes,
-                file_name=f"{profile_data['full_name']}_profile.pdf",
-                mime="application/pdf"
-            )
+def generate_qr_code(url):
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = BytesIO()
+    img.save(buf)
+    return buf.getvalue()
 
-        st.stop()
-    else:
-        st.error("❌ Profile not found.")
-        st.stop()
-
-# --- Main profile form ---
-if not st.session_state.logged_in:
-    auth_section()
-    st.stop()
-
-st.subheader("📝 Register Your Profile")
-
+# --- Main Profile Form ---
 with st.form("profile_form"):
+    st.subheader("📝 Create/Update Your Profile")
+    
     full_name = st.text_input("👤 Full Name")
     email = st.text_input("📧 Email")
-    phone = st.text_input("📱 Phone Number")
-    profession = st.text_input("💼 Profession / Job Title")
-    expertise = st.text_area("📚 Areas of Expertise")
-    how_to_help = st.text_area("🤝 How Can You Help Other Members?")
-
-    submitted = st.form_submit_button("✅ Submit My Profile")
+    phone = st.text_input("📱 Phone")
+    profession = st.text_input("💼 Profession")
+    expertise = st.text_area("📚 Expertise")
+    how_to_help = st.text_area("🤝 How You Can Help Others")
+    
+    submitted = st.form_submit_button("💾 Save Profile")
 
 if submitted:
-    profile_id = str(uuid.uuid4())
-
+    profile_id = str(datetime.now().timestamp())  # Simple ID generation
     profile_data = {
-        "id": profile_id,
-        "full_name": full_name,
-        "email": email,
-        "phone": phone,
-        "profession": profession,
-        "expertise": expertise,
-        "how_to_help": how_to_help,
+        'id': profile_id,
+        'full_name': full_name,
+        'email': email,
+        'phone': phone,
+        'profession': profession,
+        'expertise': expertise,
+        'how_to_help': how_to_help
     }
-
+    
     save_profile(profile_data)
-
-    profile_url = f"https://karwan-e-tijarat.streamlit.app/?profile_id={profile_id}"
-    qr_image = generate_qr_code(profile_url)
-
-    st.success("🎉 Your profile has been saved!")
-
-    st.markdown(f"🔗 **Share your profile:** [Click here to view]({profile_url})")
-    st.image(qr_image, caption="📱 Scan to view your profile", use_column_width=False)
-
+    st.success("Profile saved successfully!")
+    
+    # Generate shareable link
+    profile_url = f"?profile_id={profile_id}"
+    qr_img = generate_qr_code(profile_url)
+    
+    st.image(qr_img, caption="Scan to share your profile", width=200)
+    st.markdown(f"**Shareable link:** `{profile_url}`")
+    
+    # PDF Download
+    pdf_bytes = generate_pdf(get_profile_by_id(profile_id))
     st.download_button(
-        label="📄 Download Profile as PDF",
-        data=generate_pdf(profile_data),
+        "📄 Download Profile PDF",
+        data=pdf_bytes,
         file_name=f"{full_name}_profile.pdf",
         mime="application/pdf"
     )
 
-# Search functionality
+# --- Search Functionality ---
 st.markdown("---")
-st.subheader("🔍 Search Members")
+st.subheader("🔍 Search Professionals")
 
 search_term = st.text_input("Search by name, profession or expertise")
 if st.button("Search"):
@@ -111,12 +147,9 @@ if st.button("Search"):
     
     if results:
         for name, prof, exp, email, phone in results:
-            st.markdown(f"### {name}")
-            st.markdown(f"**Profession:** {prof}")
-            st.markdown(f"**Expertise:** {exp}")
-            with st.expander("Contact Info"):
-                st.markdown(f"📧 {email}")
-                st.markdown(f"📱 {phone}")
+            with st.expander(f"{name} - {prof}"):
+                st.write(f"**Expertise:** {exp}")
+                st.write(f"**Contact:** {email} | {phone}")
     else:
-        st.warning("No matching members found")
+        st.warning("No matching profiles found")
     conn.close()
