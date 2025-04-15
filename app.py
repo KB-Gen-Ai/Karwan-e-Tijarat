@@ -110,13 +110,18 @@ def check_email_exists(email):
     return exists
 
 def get_profile_by_email(email):
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute("SELECT * FROM members WHERE email=?", (email,))
-    profile = c.fetchone()
-    conn.close()
-    return dict(profile) if profile else None
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("SELECT * FROM members WHERE email=?", (email,))
+        result = c.fetchone()
+        return dict(result) if result else {}
+    except Exception as e:
+        st.error(f"Database error: {e}")
+        return {}
+    finally:
+        conn.close()
 
 def save_profile(profile_data):
     try:
@@ -127,10 +132,10 @@ def save_profile(profile_data):
                      secondary_phone, profession, expertise, how_to_help, business_url)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
                  (profile_data['id'], profile_data['full_name'], profile_data['email'],
-                  profile_data['city'], profile_data['country'], profile_data['primary_phone'],
-                  profile_data.get('secondary_phone'), profile_data['profession'],
-                  profile_data['expertise'], profile_data['how_to_help'],
-                  profile_data.get('business_url')))
+                  profile_data.get('city', ''), profile_data.get('country', 'Pakistan'), 
+                  profile_data['primary_phone'], profile_data.get('secondary_phone', ''),
+                  profile_data['profession'], profile_data['expertise'], 
+                  profile_data['how_to_help'], profile_data.get('business_url', '')))
         conn.commit()
         return True
     except sqlite3.Error as e:
@@ -154,13 +159,21 @@ profile_data = {}
 if mode == "Update Existing":
     email_to_update = st.text_input("Enter your registered email")
     if st.button("Load Profile"):
-        profile_data = get_profile_by_email(email_to_update)
-        if profile_data:
-            st.success("Profile loaded!")
+        if email_to_update:
+            profile_data = get_profile_by_email(email_to_update)
+            if profile_data:
+                st.success("Profile loaded!")
+            else:
+                st.error("No profile found with this email")
         else:
-            st.error("No profile found with this email")
+            st.warning("Please enter an email")
 
 with st.form("profile_form"):
+    # Set default values safely
+    default_country = profile_data.get('country', 'Pakistan')
+    country_list = [c.name for c in pycountry.countries]
+    country_index = country_list.index(default_country) if default_country in country_list else country_list.index("Pakistan")
+    
     full_name = st.text_input("Full Name*", value=profile_data.get('full_name', ''))
     email = st.text_input("Email*", value=profile_data.get('email', ''))
     
@@ -168,9 +181,7 @@ with st.form("profile_form"):
     with col1:
         city = st.text_input("City", value=profile_data.get('city', ''), placeholder="e.g. Karachi")
     with col2:
-        country_list = [c.name for c in pycountry.countries]
-        default_idx = country_list.index(profile_data.get('country', 'Pakistan'))
-        country = st.selectbox("Country", country_list, index=default_idx)
+        country = st.selectbox("Country", country_list, index=country_index)
     
     country_code = get_country_code(country)
     primary_phone = st.text_input("Primary Phone*", 
@@ -220,11 +231,11 @@ if submitted:
             'city': city,
             'country': country,
             'primary_phone': format_phone(primary_phone, country),
-            'secondary_phone': format_phone(secondary_phone, country) if secondary_phone else None,
+            'secondary_phone': format_phone(secondary_phone, country) if secondary_phone else '',
             'profession': profession,
             'expertise': expertise,
             'how_to_help': how_to_help,
-            'business_url': business_url or None
+            'business_url': business_url or ''
         }
         
         if save_profile(profile_data):
