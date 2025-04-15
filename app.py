@@ -1,41 +1,25 @@
 import streamlit as st
 import sqlite3
 from io import BytesIO
+import uuid
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import qrcode
-from datetime import datetime
 import re
 import pandas as pd
 import base64
 import phonenumbers
 from phonenumbers import NumberParseException
 import pycountry
+import cities
+from database import init_db, migrate_db, get_profile_by_id, get_profile_by_email, save_profile, get_all_profiles, search_profiles
 
 DB_PATH = "karwan_tijarat.db"
 
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DROP TABLE IF EXISTS members")
-    c.execute('''CREATE TABLE members
-                 (id TEXT PRIMARY KEY,
-                  full_name TEXT NOT NULL,
-                  email TEXT UNIQUE NOT NULL,
-                  city TEXT,
-                  country TEXT,
-                  primary_phone TEXT,
-                  secondary_phone TEXT,
-                  profession TEXT NOT NULL,
-                  expertise TEXT NOT NULL,
-                  how_to_help TEXT NOT NULL,
-                  business_url TEXT,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
-
+# Initialize database with migrations
 init_db()
+migrate_db()
 
 def validate_email(email):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email)
@@ -43,12 +27,12 @@ def validate_email(email):
 def get_country_phone_code(country_name):
     try:
         country = pycountry.countries.get(name=country_name)
-        return f"+{country.numeric}"
+        return f"+{phonenumbers.country_code_for_region(country.alpha_2)}"
     except:
-        return "+92"
+        return "+92"  # Default to Pakistan
 
 def format_phone(phone_str, country_name):
-    if not phone_str: return None
+    if not phone_str: return ''
     try:
         country_code = get_country_phone_code(country_name)
         if not phone_str.startswith('+'):
@@ -61,14 +45,22 @@ def format_phone(phone_str, country_name):
 def generate_pdf(profile_data, qr_img_bytes):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
+    
+    # Header Section
     p.setFont("Helvetica-Bold", 18)
     p.drawCentredString(300, 780, "Karwan-e-Tijarat Profile")
     p.line(50, 770, 550, 770)
+    
+    # QR Code
     if qr_img_bytes:
-        p.drawImage(ImageReader(BytesIO(qr_img_bytes)), 400, 650, width=120, height=120)
-    p.setFont("Helvetica", 12)
+        p.drawImage(ImageReader(BytesIO(qr_img_bytes)), 400, 600, width=120, height=120)
+    
+    # Profile Content
     y = 700
-    for label, value in [
+    line_spacing = 18
+    p.setFont("Helvetica", 12)
+    
+    fields = [
         ("Name", profile_data.get('full_name', '')),
         ("Email", profile_data.get('email', '')),
         ("Location", f"{profile_data.get('city', '')}, {profile_data.get('country', '')}"),
@@ -77,14 +69,20 @@ def generate_pdf(profile_data, qr_img_bytes):
         ("Profession", profile_data.get('profession', '')),
         ("Expertise", profile_data.get('expertise', '')),
         ("How I Can Help", profile_data.get('how_to_help', '')),
+        ("Help Needed", profile_data.get('help_needed', '')),
         ("Business URL", profile_data.get('business_url', ''))
-    ]:
+    ]
+    
+    for label, value in fields:
         if value:
             p.setFont("Helvetica-Bold", 12)
-            p.drawString(80, y, f"{label}:")
-            p.setFont("Helvetica", 12)
-            p.drawString(180, y, str(value))
-            y -= 25
+            p.drawString(50, y, f"{label}:")
+            text = p.beginText(150, y)
+            text.setFont("Helvetica", 12)
+            text.textLine(str(value))
+            p.drawText(text)
+            y -= line_spacing
+    
     p.save()
     buffer.seek(0)
     return buffer.getvalue()
@@ -102,55 +100,38 @@ def generate_qr_code(url):
         st.error(f"QR generation failed: {e}")
         return None
 
-def check_email_exists(email):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT id FROM members WHERE email=?", (email,))
-    exists = c.fetchone() is not None
-    conn.close()
-    return exists
+# Profile View Handler
+query_params = st.experimental_get_query_params()
+if 'profile_id' in query_params:
+    profile = get_profile_by_id(query_params['profile_id'][0])
+    if profile:
+        st.title(f"Profile: {profile['full_name']}")
+        with st.container():
+            col1, col2 = st.columns([1, 3])
+            with col1:
+                qr_img = generate_qr_code(st.experimental_get_query_params()['profile_id'][0])
+                if qr_img:
+                    st.image(qr_img, width=200)
+            with col2:
+                st.markdown(f"**Profession:** {profile['profession']}")
+                st.markdown(f"**Location:** {profile['city']}, {profile['country']}")
+                st.markdown(f"**Expertise:** {profile['expertise']}")
+                
+        with st.expander("Contact Details"):
+            st.write(f"**Email:** {profile['email']}")
+            st.write(f"**Primary Phone:** {profile['primary_phone']}")
+            if profile['secondary_phone']:
+                st.write(f"**Secondary Phone:** {profile['secondary_phone']}")
+                
+        with st.expander("How I Can Help"):
+            st.write(profile['how_to_help'])
+            
+        with st.expander("Help Needed"):
+            st.write(profile['help_needed'] or "Not specified")
+        
+        st.stop()
 
-def get_profile_by_email(email):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        c = conn.cursor()
-        c.execute("SELECT * FROM members WHERE email=?", (email,))
-        result = c.fetchone()
-        return dict(result) if result else {}
-    except Exception as e:
-        st.error(f"Database error: {e}")
-        return {}
-    finally:
-        conn.close()
-
-def save_profile(profile_data):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute('''INSERT OR REPLACE INTO members 
-                    (id, full_name, email, city, country, primary_phone, 
-                     secondary_phone, profession, expertise, how_to_help, business_url)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                 (profile_data['id'], profile_data['full_name'], profile_data['email'],
-                  profile_data.get('city', ''), profile_data.get('country', 'Pakistan'), 
-                  profile_data['primary_phone'], profile_data.get('secondary_phone', ''),
-                  profile_data['profession'], profile_data['expertise'], 
-                  profile_data['how_to_help'], profile_data.get('business_url', '')))
-        conn.commit()
-        return True
-    except sqlite3.Error as e:
-        st.error(f"Database error: {e}")
-        return False
-    finally:
-        conn.close()
-
-def get_all_profiles():
-    conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM members", conn)
-    conn.close()
-    return df
-
+# Main App
 st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
 st.title("🌍 Karwan-e-Tijarat")
 
@@ -166,134 +147,152 @@ if mode == "Update Existing":
                 st.success("Profile loaded!")
             else:
                 st.error("No profile found with this email")
-        else:
-            st.warning("Please enter an email")
 
 form = st.form(key='profile_form')
 with form:
-    # Set default values safely
+    # Country and City Handling
+    country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
     default_country = profile_data.get('country', 'Pakistan')
-    country_list = [c.name for c in pycountry.countries if hasattr(c, 'name')]
-    try:
-        country_index = country_list.index(default_country)
-    except ValueError:
-        country_index = country_list.index("Pakistan")
-    
-    full_name = form.text_input("Full Name*", value=profile_data.get('full_name', ''))
-    email = form.text_input("Email*", value=profile_data.get('email', ''))
     
     col1, col2 = form.columns(2)
     with col1:
-        city = form.text_input("City", value=profile_data.get('city', ''), placeholder="e.g. Karachi")
+        country = form.selectbox(
+            "Country*",
+            country_list,
+            index=country_list.index(default_country) if default_country in country_list else 0
+        )
     with col2:
-        country = form.selectbox("Country", country_list, index=country_index)
-    
-    country_code = get_country_phone_code(country)
-    primary_phone = form.text_input("Primary Phone*", 
-                                  value=profile_data.get('primary_phone', ''),
-                                  placeholder=f"{country_code}XXXXXXXXXX")
-    secondary_phone = form.text_input("Secondary Phone", 
-                                    value=profile_data.get('secondary_phone', ''),
-                                    placeholder="Optional")
+        try:
+            country_code = pycountry.countries.get(name=country).alpha_2
+            cities_list = [city.name for city in cities.get_cities_by_country_code(country_code)]
+            city = form.selectbox("City*", sorted(cities_list))
+        except:
+            city = form.text_input("City*", value=profile_data.get('city', ''))
 
+    # Phone Number Handling
+    phone_code = get_country_phone_code(country)
+    col1, col2 = form.columns(2)
+    with col1:
+        primary_phone = form.text_input(
+            f"Primary Phone* ({phone_code})", 
+            value=profile_data.get('primary_phone', '').replace(phone_code, ''),
+            placeholder="XXXXXXXXXX"
+        )
+    with col2:
+        secondary_phone = form.text_input(
+            "Secondary Phone", 
+            value=profile_data.get('secondary_phone', ''),
+            placeholder="Optional"
+        )
+
+    # Other Fields
+    full_name = form.text_input("Full Name*", value=profile_data.get('full_name', ''))
+    email = form.text_input("Email*", value=profile_data.get('email', ''))
     profession = form.text_input("Profession*", value=profile_data.get('profession', ''))
     expertise = form.text_area("Expertise*", value=profile_data.get('expertise', ''))
-    how_to_help = form.text_area("How You Can Help*", value=profile_data.get('how_to_help', ''))
-    business_url = form.text_input("Business URL", value=profile_data.get('business_url', ''),
-                                 placeholder="https://example.com (optional)")
+    how_to_help = form.text_area("How I Can Help*", value=profile_data.get('how_to_help', ''))
+    help_needed = form.text_area("What Help Do I Need?", value=profile_data.get('help_needed', ''))
+    business_url = form.text_input("Business URL", value=profile_data.get('business_url', ''), placeholder="https://example.com")
     
     submitted = form.form_submit_button("Save Profile")
 
 if submitted:
     errors = []
     if not all([full_name, email, primary_phone, profession, expertise, how_to_help]):
-        errors.append("Missing required fields")
+        errors.append("Missing required fields (marked with *)")
     elif not validate_email(email):
         errors.append("Invalid email format")
-    elif mode == "Create New" and check_email_exists(email):
+    elif mode == "Create New" and get_profile_by_email(email):
         errors.append("Email already exists (use Update mode)")
     
     if errors:
-        for error in errors:
-            st.error(error)
+        for error in errors: st.error(error)
     else:
         profile_data = {
-            'id': profile_data.get('id', str(datetime.now().timestamp())),
+            'id': profile_data.get('id', str(uuid.uuid4())),
             'full_name': full_name,
             'email': email,
             'city': city,
             'country': country,
-            'primary_phone': format_phone(primary_phone, country),
+            'primary_phone': format_phone(f"{phone_code}{primary_phone}", country),
             'secondary_phone': format_phone(secondary_phone, country) if secondary_phone else '',
             'profession': profession,
             'expertise': expertise,
             'how_to_help': how_to_help,
-            'business_url': business_url or ''
+            'help_needed': help_needed,
+            'business_url': business_url
         }
         
         if save_profile(profile_data):
-            st.success("Profile saved!")
+            st.success("Profile saved successfully!")
             base_url = st.experimental_get_query_params().get('_', [''])[0]
             profile_url = f"{base_url}?profile_id={profile_data['id']}"
-            qr_img = generate_qr_code(profile_url)
             
-            if qr_img:
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.image(qr_img, caption="Scan to share", width=200)
-                with col2:
-                    st.write("**Shareable Link:**")
-                    st.markdown(f"[{profile_url}]({profile_url})")
-                    st.code(profile_url)
-                
-                pdf_bytes = generate_pdf(profile_data, qr_img)
-                if pdf_bytes:
-                    st.download_button(
-                        "📄 Download Profile PDF",
-                        data=pdf_bytes,
-                        file_name=f"{full_name}_profile.pdf",
-                        mime="application/pdf"
-                    )
+            col1, col2 = st.columns(2)
+            with col1:
+                qr_img = generate_qr_code(profile_url)
+                if qr_img:
+                    st.image(qr_img, caption="Share Profile QR", width=200)
+            with col2:
+                st.markdown("**Shareable Profile URL:**")
+                st.code(profile_url)
+            
+            pdf_bytes = generate_pdf(profile_data, qr_img)
+            st.download_button(
+                "📄 Download Profile PDF",
+                data=pdf_bytes,
+                file_name=f"{full_name}_profile.pdf",
+                mime="application/pdf"
+            )
+            
+            st.session_state.clear()
+            st.experimental_rerun()
 
+# Admin Section
 if st.secrets.get("ADMIN_PASSWORD"):
-    with st.expander("Admin Tools"):
+    with st.expander("🔒 Admin Tools"):
         admin_pass = st.text_input("Enter Admin Password", type="password")
         if admin_pass == st.secrets["ADMIN_PASSWORD"]:
-            if st.button("Export All Data to CSV"):
+            if st.button("Export Full Database to CSV"):
                 df = get_all_profiles()
-                if df is not None:
+                if not df.empty:
                     csv = df.to_csv(index=False)
                     b64 = base64.b64encode(csv.encode()).decode()
                     st.markdown(
-                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
+                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">📥 Download CSV</a>',
                         unsafe_allow_html=True
                     )
+                else:
+                    st.warning("Database is empty")
 
+# Search Section
 st.divider()
 st.subheader("🔍 Search Professionals")
-search_term = st.text_input("Search by name, profession or expertise")
+search_term = st.text_input("Search by name, profession, expertise, or location")
 if st.button("Search"):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("""SELECT full_name, profession, expertise, email, 
-                      primary_phone, city, country 
-                   FROM members 
-                   WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
-                   (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
-        results = c.fetchall()
-        
-        if results:
-            st.write(f"Found {len(results)} professionals:")
-            for name, prof, exp, email, phone, city, country in results:
-                with st.expander(f"{name} - {prof}"):
-                    st.write(f"**Location:** {city}, {country}")
-                    st.write(f"**Expertise:** {exp}")
-                    st.write(f"**Email:** {email}")
-                    st.write(f"**Phone:** {phone}")
-        else:
-            st.warning("No matching profiles found")
-    except sqlite3.Error as e:
-        st.error(f"Database error: {e}")
-    finally:
-        conn.close()
+    results = search_profiles(search_term)
+    if not results.empty:
+        st.write(f"Found {len(results)} profiles:")
+        columns = st.columns(3)
+        for idx, (_, row) in enumerate(results.iterrows()):
+            with columns[idx % 3]:
+                with st.container(border=True):
+                    st.markdown(f"### {row['full_name']}")
+                    st.caption(f"**{row['profession']}**")
+                    st.write(f"📍 {row['city']}, {row['country']}")
+                    with st.expander("Details"):
+                        st.write(f"**Expertise:** {row['expertise']}")
+                        st.write(f"**Contact:** {row['email']}")
+                        if row['business_url']:
+                            st.markdown(f"[Website]({row['business_url']})")
+                    if st.button("Download PDF", key=f"pdf_{row['id']}"):
+                        pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"?profile_id={row['id']}"))
+                        st.download_button(
+                            label="Download",
+                            data=pdf_bytes,
+                            file_name=f"{row['full_name']}_profile.pdf",
+                            mime="application/pdf",
+                            key=f"dl_{row['id']}"
+                        )
+    else:
+        st.warning("No matching profiles found")
