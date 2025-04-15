@@ -12,7 +12,8 @@ import base64
 import phonenumbers
 from phonenumbers import NumberParseException
 import pycountry
-import cities
+from geopy.geocoders import Nominatim
+
 from database import init_db, migrate_db, get_profile_by_id, get_profile_by_email, save_profile, get_all_profiles, search_profiles
 
 DB_PATH = "karwan_tijarat.db"
@@ -162,10 +163,13 @@ with form:
             index=country_list.index(default_country) if default_country in country_list else 0
         )
     with col2:
+        geolocator = Nominatim(user_agent="karwan_tijarat")
         try:
-            country_code = pycountry.countries.get(name=country).alpha_2
-            cities_list = [city.name for city in cities.get_cities_by_country_code(country_code)]
-            city = form.selectbox("City*", sorted(cities_list))
+            location = geolocator.geocode(country)
+            if location:
+                city = form.text_input("City*", value=profile_data.get('city', ''))  # Simplified city input
+            else:
+                city = form.text_input("City*", value=profile_data.get('city', ''))
         except:
             city = form.text_input("City*", value=profile_data.get('city', ''))
 
