@@ -13,13 +13,13 @@ import phonenumbers
 from phonenumbers import NumberParseException
 import pycountry
 
-# Initialize database
 DB_PATH = "karwan_tijarat.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS members
+    c.execute("DROP TABLE IF EXISTS members")
+    c.execute('''CREATE TABLE members
                  (id TEXT PRIMARY KEY,
                   full_name TEXT NOT NULL,
                   email TEXT UNIQUE NOT NULL,
@@ -145,11 +145,9 @@ def get_all_profiles():
     conn.close()
     return df
 
-# --- UI ---
 st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
 st.title("🌍 Karwan-e-Tijarat")
 
-# Profile Mode
 mode = st.radio("Profile Mode", ["Create New", "Update Existing"], horizontal=True)
 profile_data = {}
 
@@ -163,11 +161,9 @@ if mode == "Update Existing":
             st.error("No profile found with this email")
 
 with st.form("profile_form"):
-    # Personal Info
     full_name = st.text_input("Full Name*", value=profile_data.get('full_name', ''))
     email = st.text_input("Email*", value=profile_data.get('email', ''))
     
-    # Location
     col1, col2 = st.columns(2)
     with col1:
         city = st.text_input("City", value=profile_data.get('city', ''), placeholder="e.g. Karachi")
@@ -176,7 +172,6 @@ with st.form("profile_form"):
         default_idx = country_list.index(profile_data.get('country', 'Pakistan'))
         country = st.selectbox("Country", country_list, index=default_idx)
     
-    # Phone
     country_code = get_country_code(country)
     primary_phone = st.text_input("Primary Phone*", 
                                 value=profile_data.get('primary_phone', ''),
@@ -185,12 +180,23 @@ with st.form("profile_form"):
                                   value=profile_data.get('secondary_phone', ''),
                                   placeholder="Optional")
 
-    # Professional Info
     profession = st.text_input("Profession*", value=profile_data.get('profession', ''))
     expertise = st.text_area("Expertise*", value=profile_data.get('expertise', ''))
     how_to_help = st.text_area("How You Can Help*", value=profile_data.get('how_to_help', ''))
     business_url = st.text_input("Business URL", value=profile_data.get('business_url', ''),
                                placeholder="https://example.com (optional)")
+    
+    st.markdown("""
+    <script>
+    document.querySelector("select[aria-label='Country']").addEventListener("change", function() {
+        const country = this.value;
+        const codes = {""" + 
+        ','.join([f'"{c.name}":"+{c.numeric_phone_code}"' for c in pycountry.countries]) + 
+        """};
+        document.querySelector("input[aria-label='Primary Phone*']").placeholder = codes[country] + "XXXXXXXXXX";
+    });
+    </script>
+    """, unsafe_allow_html=True)
     
     submitted = st.form_submit_button("Save Profile")
 
@@ -223,6 +229,67 @@ if submitted:
         
         if save_profile(profile_data):
             st.success("Profile saved!")
-            # [Keep QR/PDF generation code from previous version]
+            base_url = st.experimental_get_query_params().get('_', [''])[0]
+            profile_url = f"{base_url}?profile_id={profile_data['id']}"
+            qr_img = generate_qr_code(profile_url)
+            
+            if qr_img:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(qr_img, caption="Scan to share", width=200)
+                with col2:
+                    st.write("**Shareable Link:**")
+                    st.markdown(f"[{profile_url}]({profile_url})")
+                    st.code(profile_url)
+                
+                pdf_bytes = generate_pdf(profile_data, qr_img)
+                if pdf_bytes:
+                    st.download_button(
+                        "📄 Download Profile PDF",
+                        data=pdf_bytes,
+                        file_name=f"{full_name}_profile.pdf",
+                        mime="application/pdf"
+                    )
 
-# [Keep Admin Export and Search functionality exactly as before]
+if st.secrets.get("ADMIN_PASSWORD"):
+    with st.expander("Admin Tools"):
+        admin_pass = st.text_input("Enter Admin Password", type="password")
+        if admin_pass == st.secrets["ADMIN_PASSWORD"]:
+            if st.button("Export All Data to CSV"):
+                df = get_all_profiles()
+                if df is not None:
+                    csv = df.to_csv(index=False)
+                    b64 = base64.b64encode(csv.encode()).decode()
+                    st.markdown(
+                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
+                        unsafe_allow_html=True
+                    )
+
+st.divider()
+st.subheader("🔍 Search Professionals")
+search_term = st.text_input("Search by name, profession or expertise")
+if st.button("Search"):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute("""SELECT full_name, profession, expertise, email, 
+                      primary_phone, city, country 
+                   FROM members 
+                   WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
+                   (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
+        results = c.fetchall()
+        
+        if results:
+            st.write(f"Found {len(results)} professionals:")
+            for name, prof, exp, email, phone, city, country in results:
+                with st.expander(f"{name} - {prof}"):
+                    st.write(f"**Location:** {city}, {country}")
+                    st.write(f"**Expertise:** {exp}")
+                    st.write(f"**Email:** {email}")
+                    st.write(f"**Phone:** {phone}")
+        else:
+            st.warning("No matching profiles found")
+    except sqlite3.Error as e:
+        st.error(f"Database error: {e}")
+    finally:
+        conn.close()
