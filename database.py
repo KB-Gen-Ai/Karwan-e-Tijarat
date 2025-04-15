@@ -1,19 +1,97 @@
-def generate_pdf(profile):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt="Karwan-e-Tijarat Member Profile", ln=True, align="C")
-    pdf.ln(10)
-    labels = ["Name", "Email", "Phone", "City", "Profession", "Skills", "Can Help With", "Needs Help With"]
-    for label, val in zip(labels, profile[1:-1]):
-        pdf.cell(200, 10, txt=f"{label}: {val}", ln=True)
-    # QR Code
-    profile_url = f"https://karwan.app/profile?email={profile[2]}&phone={profile[3]}"
-    qr_bytes = generate_qr_code(profile_url)
-    with open("temp_qr.png", "wb") as f:
-        f.write(qr_bytes)
-    pdf.image("temp_qr.png", x=160, y=10, w=40)
+import sqlite3
+import pandas as pd
+import uuid
+
+DB_PATH = "karwan_tijarat.db"
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS members
+                 (id TEXT PRIMARY KEY,
+                  full_name TEXT NOT NULL,
+                  email TEXT UNIQUE NOT NULL,
+                  city TEXT NOT NULL,
+                  country TEXT NOT NULL,
+                  primary_phone TEXT NOT NULL,
+                  secondary_phone TEXT,
+                  profession TEXT NOT NULL,
+                  expertise TEXT NOT NULL,
+                  how_to_help TEXT NOT NULL,
+                  help_needed TEXT NOT NULL,
+                  business_url TEXT,
+                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    conn.commit()
+    conn.close()
+
+def migrate_db():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
     
-    # FIXED: Generate PDF in memory
-    pdf_output = pdf.output(dest='S').encode('latin1')
-    return pdf_output
+    try:
+        c.execute("ALTER TABLE members ADD COLUMN help_needed TEXT NOT NULL DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    
+    conn.commit()
+    conn.close()
+
+def get_profile_by_id(profile_id):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM members WHERE id=?", (profile_id,))
+    result = c.fetchone()
+    conn.close()
+    return dict(result) if result else None
+
+def get_profile_by_email(email):
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT * FROM members WHERE email=?", (email,))
+    result = c.fetchone()
+    conn.close()
+    return dict(result) if result else None
+
+def save_profile(profile_data):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute('''INSERT OR REPLACE INTO members 
+                    (id, full_name, email, city, country, primary_phone, 
+                     secondary_phone, profession, expertise, how_to_help, 
+                     help_needed, business_url)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                 (profile_data['id'], profile_data['full_name'], profile_data['email'],
+                  profile_data['city'], profile_data['country'], 
+                  profile_data['primary_phone'], profile_data.get('secondary_phone', ''),
+                  profile_data['profession'], profile_data['expertise'], 
+                  profile_data['how_to_help'], profile_data.get('help_needed', ''),
+                  profile_data.get('business_url', '')))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_all_profiles():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM members", conn)
+    conn.close()
+    return df
+
+def search_profiles(search_term):
+    conn = sqlite3.connect(DB_PATH)
+    query = f"%{search_term.lower()}%"
+    df = pd.read_sql_query('''SELECT * FROM members 
+                            WHERE LOWER(full_name) LIKE ? 
+                            OR LOWER(profession) LIKE ? 
+                            OR LOWER(expertise) LIKE ? 
+                            OR LOWER(city) LIKE ? 
+                            OR LOWER(country) LIKE ?''', 
+                          conn, params=(query,)*5)
+    conn.close()
+    return df
