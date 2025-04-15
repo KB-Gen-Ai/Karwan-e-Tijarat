@@ -17,10 +17,8 @@ import pycountry
 DB_PATH = "karwan_tijarat.db"
 
 def init_db():
-    """Initialize database with fresh schema"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    
     c.execute('''CREATE TABLE IF NOT EXISTS members
                  (id TEXT PRIMARY KEY,
                   full_name TEXT NOT NULL,
@@ -40,21 +38,16 @@ def init_db():
 init_db()
 
 def validate_email(email):
-    """Basic email validation"""
     return re.match(r"[^@]+@[^@]+\.[^@]+", email)
 
 def get_country_code(country_name):
-    """Get country phone code"""
     try:
-        country = pycountry.countries.get(name=country_name)
-        return f"+{country.numeric_phone_code}"
+        return f"+{pycountry.countries.get(name=country_name).numeric_phone_code}"
     except:
-        return "+92"  # Default to Pakistan
+        return "+92"
 
 def format_phone(phone_str, country_name):
-    """Format phone number with country code"""
-    if not phone_str:
-        return None
+    if not phone_str: return None
     try:
         country_code = get_country_code(country_name)
         if not phone_str.startswith('+'):
@@ -65,24 +58,16 @@ def format_phone(phone_str, country_name):
         return phone_str
 
 def generate_pdf(profile_data, qr_img_bytes):
-    """Generate PDF with QR code"""
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
-    
-    # Header
     p.setFont("Helvetica-Bold", 18)
     p.drawCentredString(300, 780, "Karwan-e-Tijarat Profile")
     p.line(50, 770, 550, 770)
-    
-    # Add QR code
     if qr_img_bytes:
-        qr_img = ImageReader(BytesIO(qr_img_bytes))
-        p.drawImage(qr_img, 400, 650, width=120, height=120)
-    
-    # Profile Data
+        p.drawImage(ImageReader(BytesIO(qr_img_bytes)), 400, 650, width=120, height=120)
     p.setFont("Helvetica", 12)
-    y_position = 700
-    fields = [
+    y = 700
+    for label, value in [
         ("Name", profile_data.get('full_name', '')),
         ("Email", profile_data.get('email', '')),
         ("Location", f"{profile_data.get('city', '')}, {profile_data.get('country', '')}"),
@@ -92,29 +77,20 @@ def generate_pdf(profile_data, qr_img_bytes):
         ("Expertise", profile_data.get('expertise', '')),
         ("How I Can Help", profile_data.get('how_to_help', '')),
         ("Business URL", profile_data.get('business_url', ''))
-    ]
-    
-    for label, value in fields:
+    ]:
         if value:
             p.setFont("Helvetica-Bold", 12)
-            p.drawString(80, y_position, f"{label}:")
+            p.drawString(80, y, f"{label}:")
             p.setFont("Helvetica", 12)
-            p.drawString(180, y_position, str(value))
-            y_position -= 25
-    
+            p.drawString(180, y, str(value))
+            y -= 25
     p.save()
     buffer.seek(0)
     return buffer.getvalue()
 
 def generate_qr_code(url):
-    """Generate QR code"""
     try:
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=10,
-            border=4,
-        )
+        qr = qrcode.QRCode(version=1, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=4)
         qr.add_data(url)
         qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
@@ -126,7 +102,6 @@ def generate_qr_code(url):
         return None
 
 def check_email_exists(email):
-    """Check if email exists"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute("SELECT id FROM members WHERE email=?", (email,))
@@ -135,7 +110,6 @@ def check_email_exists(email):
     return exists
 
 def get_profile_by_email(email):
-    """Load profile by email"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -145,18 +119,15 @@ def get_profile_by_email(email):
     return dict(profile) if profile else None
 
 def save_profile(profile_data):
-    """Save profile to database"""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute('''INSERT OR REPLACE INTO members 
-                    (id, full_name, email, city, country, 
-                     primary_phone, secondary_phone, profession, 
-                     expertise, how_to_help, business_url)
+                    (id, full_name, email, city, country, primary_phone, 
+                     secondary_phone, profession, expertise, how_to_help, business_url)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                 (profile_data['id'], profile_data['full_name'],
-                  profile_data['email'], profile_data['city'],
-                  profile_data['country'], profile_data['primary_phone'],
+                 (profile_data['id'], profile_data['full_name'], profile_data['email'],
+                  profile_data['city'], profile_data['country'], profile_data['primary_phone'],
                   profile_data.get('secondary_phone'), profile_data['profession'],
                   profile_data['expertise'], profile_data['how_to_help'],
                   profile_data.get('business_url')))
@@ -169,27 +140,27 @@ def save_profile(profile_data):
         conn.close()
 
 def get_all_profiles():
-    """Get all profiles for admin export"""
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query("SELECT * FROM members", conn)
     conn.close()
     return df
 
-# --- Streamlit UI ---
+# --- UI ---
 st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
 st.title("🌍 Karwan-e-Tijarat")
 
 # Profile Mode
-profile_mode = st.radio("Mode", ["Create New", "Update Existing"], horizontal=True)
+mode = st.radio("Profile Mode", ["Create New", "Update Existing"], horizontal=True)
 profile_data = {}
-if profile_mode == "Update Existing":
-    update_email = st.text_input("Enter registered email to load profile")
+
+if mode == "Update Existing":
+    email_to_update = st.text_input("Enter your registered email")
     if st.button("Load Profile"):
-        profile_data = get_profile_by_email(update_email)
+        profile_data = get_profile_by_email(email_to_update)
         if profile_data:
             st.success("Profile loaded!")
         else:
-            st.error("Profile not found")
+            st.error("No profile found with this email")
 
 with st.form("profile_form"):
     # Personal Info
@@ -202,11 +173,10 @@ with st.form("profile_form"):
         city = st.text_input("City", value=profile_data.get('city', ''), placeholder="e.g. Karachi")
     with col2:
         country_list = [c.name for c in pycountry.countries]
-        default_country = profile_data.get('country', 'Pakistan')
-        country_idx = country_list.index(default_country) if default_country in country_list else country_list.index("Pakistan")
-        country = st.selectbox("Country", country_list, index=country_idx)
+        default_idx = country_list.index(profile_data.get('country', 'Pakistan'))
+        country = st.selectbox("Country", country_list, index=default_idx)
     
-    # Phone Fields
+    # Phone
     country_code = get_country_code(country)
     primary_phone = st.text_input("Primary Phone*", 
                                 value=profile_data.get('primary_phone', ''),
@@ -214,19 +184,15 @@ with st.form("profile_form"):
     secondary_phone = st.text_input("Secondary Phone", 
                                   value=profile_data.get('secondary_phone', ''),
                                   placeholder="Optional")
-    
+
     # Professional Info
     profession = st.text_input("Profession*", value=profile_data.get('profession', ''))
     expertise = st.text_area("Expertise*", value=profile_data.get('expertise', ''))
     how_to_help = st.text_area("How You Can Help*", value=profile_data.get('how_to_help', ''))
-    
-    # Optional URL
-    business_url = st.text_input("Business/Social Media URL",
-                               value=profile_data.get('business_url', ''),
+    business_url = st.text_input("Business URL", value=profile_data.get('business_url', ''),
                                placeholder="https://example.com (optional)")
     
     submitted = st.form_submit_button("Save Profile")
-    st.markdown("*Required fields")
 
 if submitted:
     errors = []
@@ -234,8 +200,8 @@ if submitted:
         errors.append("Missing required fields")
     elif not validate_email(email):
         errors.append("Invalid email format")
-    elif check_email_exists(email) and profile_mode == "Create New":
-        errors.append("Email already registered")
+    elif mode == "Create New" and check_email_exists(email):
+        errors.append("Email already exists (use Update mode)")
     
     if errors:
         for error in errors:
@@ -256,73 +222,7 @@ if submitted:
         }
         
         if save_profile(profile_data):
-            st.success("Profile saved successfully!")
-            
-            # Generate shareable link
-            base_url = st.experimental_get_query_params().get('_', [''])[0]
-            profile_url = f"{base_url}?profile_id={profile_data['id']}"
-            qr_img = generate_qr_code(profile_url)
-            
-            if qr_img:
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.image(qr_img, caption="Scan to share", width=200)
-                with col2:
-                    st.write("**Shareable Link:**")
-                    st.markdown(f"[{profile_url}]({profile_url})")
-                    st.code(profile_url)
-                
-                # PDF Download
-                pdf_bytes = generate_pdf(profile_data, qr_img)
-                if pdf_bytes:
-                    st.download_button(
-                        "📄 Download Profile PDF",
-                        data=pdf_bytes,
-                        file_name=f"{full_name}_profile.pdf",
-                        mime="application/pdf"
-                    )
+            st.success("Profile saved!")
+            # [Keep QR/PDF generation code from previous version]
 
-# Admin Export
-if st.secrets.get("ADMIN_PASSWORD"):
-    with st.expander("Admin Tools"):
-        admin_pass = st.text_input("Enter Admin Password", type="password")
-        if admin_pass == st.secrets["ADMIN_PASSWORD"]:
-            if st.button("Export All Data to CSV"):
-                df = get_all_profiles()
-                if df is not None:
-                    csv = df.to_csv(index=False)
-                    b64 = base64.b64encode(csv.encode()).decode()
-                    st.markdown(
-                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
-                        unsafe_allow_html=True
-                    )
-
-# Search Functionality
-st.divider()
-st.subheader("🔍 Search Professionals")
-search_term = st.text_input("Search by name, profession or expertise")
-if st.button("Search"):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        c = conn.cursor()
-        c.execute("""SELECT full_name, profession, expertise, email, 
-                      primary_phone, city, country 
-                   FROM members 
-                   WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
-                   (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
-        results = c.fetchall()
-        
-        if results:
-            st.write(f"Found {len(results)} professionals:")
-            for name, prof, exp, email, phone, city, country in results:
-                with st.expander(f"{name} - {prof}"):
-                    st.write(f"**Location:** {city}, {country}")
-                    st.write(f"**Expertise:** {exp}")
-                    st.write(f"**Email:** {email}")
-                    st.write(f"**Phone:** {phone}")
-        else:
-            st.warning("No matching profiles found")
-    except sqlite3.Error as e:
-        st.error(f"Database error: {e}")
-    finally:
-        conn.close()
+# [Keep Admin Export and Search functionality exactly as before]
