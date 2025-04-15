@@ -1,59 +1,59 @@
 import sqlite3
-from typing import Optional, List, Dict, Any
+import re
 
-DB_PATH = "karwan_tijarat.db"
-SCHEMA_VERSION = 2  # Increment this when schema changes
+# Database setup
+conn = sqlite3.connect('karwan_e_tijarat.db', check_same_thread=False)
+c = conn.cursor()
+c.execute('''
+    CREATE TABLE IF NOT EXISTS profiles (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        email TEXT,
+        phone TEXT,
+        city TEXT,
+        profession TEXT,
+        skills TEXT,
+        help_offer TEXT,
+        help_seek TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
+conn.commit()
 
-def init_db():
-    """Initialize database with proper schema"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    # Create version table if not exists
-    c.execute("CREATE TABLE IF NOT EXISTS db_version (version INTEGER)")
-    
-    # Get current version
-    c.execute("SELECT version FROM db_version LIMIT 1")
-    result = c.fetchone()
-    current_version = result[0] if result else 0
-    
-    # Create members table with all columns
-    c.execute('''CREATE TABLE IF NOT EXISTS members
-                 (id TEXT PRIMARY KEY,
-                  full_name TEXT NOT NULL,
-                  email TEXT UNIQUE NOT NULL,
-                  phone TEXT,
-                  profession TEXT NOT NULL,
-                  expertise TEXT NOT NULL,
-                  how_to_help TEXT NOT NULL,
-                  linkedin_url TEXT,
-                  social_media TEXT,
-                  photo BLOB,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    
-    # Upgrade schema if needed
-    if current_version < SCHEMA_VERSION:
-        try:
-            # Add missing columns
-            c.execute("PRAGMA table_info(members)")
-            columns = [col[1] for col in c.fetchall()]
-            
-            if 'linkedin_url' not in columns:
-                c.execute("ALTER TABLE members ADD COLUMN linkedin_url TEXT")
-            
-            if 'social_media' not in columns:
-                c.execute("ALTER TABLE members ADD COLUMN social_media TEXT")
-                
-            if 'photo' not in columns:
-                c.execute("ALTER TABLE members ADD COLUMN photo BLOB")
-            
-            # Update version
-            c.execute("DELETE FROM db_version")
-            c.execute("INSERT INTO db_version (version) VALUES (?)", (SCHEMA_VERSION,))
-            conn.commit()
-        except sqlite3.Error as e:
-            conn.rollback()
-            raise RuntimeError(f"Database upgrade failed: {str(e)}")
-    
+def validate_email(email):
+    return re.match(r"[^@]+@[^@]+\.[^@]+", email)
+
+def validate_phone(phone):
+    return re.match(r"^[0-9\-\+]{9,15}$", phone)
+
+def get_profile_by_email_phone(email, phone):
+    c.execute("SELECT * FROM profiles WHERE email = ? AND phone = ?", (email, phone))
+    return c.fetchone()
+
+def insert_or_update_profile(data):
+    existing = get_profile_by_email_phone(data['email'], data['phone'])
+    if existing:
+        c.execute('''
+            UPDATE profiles SET name=?, city=?, profession=?, skills=?, help_offer=?, help_seek=?, timestamp=CURRENT_TIMESTAMP
+            WHERE email=? AND phone=?
+        ''', (data['name'], data['city'], data['profession'], data['skills'], data['help_offer'], data['help_seek'], data['email'], data['phone']))
+    else:
+        c.execute('''
+            INSERT INTO profiles (name, email, phone, city, profession, skills, help_offer, help_seek)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (data['name'], data['email'], data['phone'], data['city'], data['profession'], data['skills'], data['help_offer'], data['help_seek']))
     conn.commit()
-    conn.close()
+
+def fetch_profiles_by_search(search_term):
+    c.execute("""
+        SELECT * FROM profiles
+        WHERE name LIKE ? OR city LIKE ? OR profession LIKE ?
+        ORDER BY timestamp DESC
+    """, (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
+    return c.fetchall()
+
+def fetch_all_profiles():
+    return c.execute("SELECT * FROM profiles").fetchall()
+
+def get_connection():
+    return conn
