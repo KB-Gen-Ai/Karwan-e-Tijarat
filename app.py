@@ -8,6 +8,12 @@ import base64
 from fpdf import FPDF
 import re
 
+from database import (
+    insert_or_update_profile, get_profile_by_email_phone,
+    validate_email, validate_phone,
+    fetch_profiles_by_search, fetch_all_profiles, get_connection
+)
+
 # Database setup
 conn = sqlite3.connect('karwan_e_tijarat.db', check_same_thread=False)
 c = conn.cursor()
