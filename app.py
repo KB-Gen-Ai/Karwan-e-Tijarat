@@ -17,7 +17,9 @@ from geopy.geocoders import Nominatim
 from database import init_db, migrate_db, get_profile_by_id, get_profile_by_email, save_profile, get_all_profiles, search_profiles
 
 DB_PATH = "karwan_tijarat.db"
+
 st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
+
 # Initialize database with migrations
 init_db()
 migrate_db()
