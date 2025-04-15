@@ -6,23 +6,16 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 import qrcode
-from datetime import datetime
 import re
 import pandas as pd
 import base64
 import phonenumbers
 from phonenumbers import NumberParseException
 import pycountry
+import cities
 from database import init_db, migrate_db, get_profile_by_id, get_profile_by_email, save_profile, get_all_profiles, search_profiles
 
 DB_PATH = "karwan_tijarat.db"
-PHONE_CODES = {
-    'Pakistan': '+92',
-    'India': '+91',
-    'United States': '+1',
-    'China': '+86',
-    'United Kingdom': '+44'
-}
 
 # Initialize database with migrations
 init_db()
@@ -32,7 +25,11 @@ def validate_email(email):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email)
 
 def get_country_phone_code(country_name):
-    return PHONE_CODES.get(country_name, '+92')
+    try:
+        country = pycountry.countries.get(name=country_name)
+        return f"+{phonenumbers.country_code_for_region(country.alpha_2)}"
+    except:
+        return "+92"  # Default to Pakistan
 
 def format_phone(phone_str, country_name):
     if not phone_str: return ''
@@ -103,10 +100,6 @@ def generate_qr_code(url):
         st.error(f"QR generation failed: {e}")
         return None
 
-def clear_form():
-    st.session_state.clear()
-    st.experimental_rerun()
-
 # Profile View Handler
 query_params = st.experimental_get_query_params()
 if 'profile_id' in query_params:
@@ -157,17 +150,26 @@ if mode == "Update Existing":
 
 form = st.form(key='profile_form')
 with form:
-    country_list = sorted(PHONE_CODES.keys())
-    
-    full_name = form.text_input("Full Name*", value=profile_data.get('full_name', ''))
-    email = form.text_input("Email*", value=profile_data.get('email', ''))
+    # Country and City Handling
+    country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
+    default_country = profile_data.get('country', 'Pakistan')
     
     col1, col2 = form.columns(2)
     with col1:
-        country = form.selectbox("Country*", country_list, index=country_list.index(profile_data.get('country', 'Pakistan')))
+        country = form.selectbox(
+            "Country*",
+            country_list,
+            index=country_list.index(default_country) if default_country in country_list else 0
+        )
     with col2:
-        city = form.text_input("City*", value=profile_data.get('city', ''), placeholder="e.g. Karachi")
-    
+        try:
+            country_code = pycountry.countries.get(name=country).alpha_2
+            cities_list = [city.name for city in cities.get_cities_by_country_code(country_code)]
+            city = form.selectbox("City*", sorted(cities_list))
+        except:
+            city = form.text_input("City*", value=profile_data.get('city', ''))
+
+    # Phone Number Handling
     phone_code = get_country_phone_code(country)
     col1, col2 = form.columns(2)
     with col1:
@@ -179,10 +181,13 @@ with form:
     with col2:
         secondary_phone = form.text_input(
             "Secondary Phone", 
-            value=profile_data.get('secondary_phone', '').replace(phone_code, ''),
+            value=profile_data.get('secondary_phone', ''),
             placeholder="Optional"
         )
-    
+
+    # Other Fields
+    full_name = form.text_input("Full Name*", value=profile_data.get('full_name', ''))
+    email = form.text_input("Email*", value=profile_data.get('email', ''))
     profession = form.text_input("Profession*", value=profile_data.get('profession', ''))
     expertise = form.text_area("Expertise*", value=profile_data.get('expertise', ''))
     how_to_help = form.text_area("How I Can Help*", value=profile_data.get('how_to_help', ''))
@@ -210,7 +215,7 @@ if submitted:
             'city': city,
             'country': country,
             'primary_phone': format_phone(f"{phone_code}{primary_phone}", country),
-            'secondary_phone': format_phone(f"{phone_code}{secondary_phone}", country) if secondary_phone else '',
+            'secondary_phone': format_phone(secondary_phone, country) if secondary_phone else '',
             'profession': profession,
             'expertise': expertise,
             'how_to_help': how_to_help,
@@ -240,7 +245,8 @@ if submitted:
                 mime="application/pdf"
             )
             
-            clear_form()
+            st.session_state.clear()
+            st.experimental_rerun()
 
 # Admin Section
 if st.secrets.get("ADMIN_PASSWORD"):
