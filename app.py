@@ -10,39 +10,63 @@ import re
 import pandas as pd
 import base64
 from PIL import Image
+import phonenumbers
+from phonenumbers import NumberParseException
 
 # Initialize database
 DB_PATH = "karwan_tijarat.db"
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS members
-                 (id TEXT PRIMARY KEY,
-                  full_name TEXT NOT NULL,
-                  email TEXT UNIQUE NOT NULL,
-                  phone TEXT,
-                  profession TEXT NOT NULL,
-                  expertise TEXT NOT NULL,
-                  how_to_help TEXT NOT NULL,
-                  linkedin_url TEXT,
-                  social_media TEXT,
-                  photo BLOB,
-                  timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
-    conn.commit()
-    conn.close()
+    """Initialize database with fresh schema"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        
+        # Drop existing table if exists
+        c.execute("DROP TABLE IF EXISTS members")
+        
+        # Create fresh table with all columns
+        c.execute('''CREATE TABLE members
+                     (id TEXT PRIMARY KEY,
+                      full_name TEXT NOT NULL,
+                      email TEXT UNIQUE NOT NULL,
+                      primary_phone TEXT,
+                      secondary_phone TEXT,
+                      profession TEXT NOT NULL,
+                      expertise TEXT NOT NULL,
+                      how_to_help TEXT NOT NULL,
+                      business_url TEXT,
+                      social_media_url TEXT,
+                      photo BLOB,
+                      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        conn.commit()
+    except sqlite3.Error as e:
+        st.error(f"Database initialization failed: {str(e)}")
+    finally:
+        conn.close()
 
 init_db()
 
 def validate_email(email):
     """Basic email validation"""
+    if not email:
+        return False
     return re.match(r"[^@]+@[^@]+\.[^@]+", email)
 
-def validate_url(url):
-    """Basic URL validation"""
-    if not url:
-        return True
-    return re.match(r"https?://(?:[-\w.]|(?:%[\da-fA-F]{2}))+", url)
+def format_phone_number(phone):
+    """Format phone number if valid"""
+    if not phone:
+        return None
+    try:
+        parsed = phonenumbers.parse(phone, "PK")  # Default to Pakistan if no country code
+        if phonenumbers.is_valid_number(parsed):
+            return phonenumbers.format_number(
+                parsed, 
+                phonenumbers.PhoneNumberFormat.INTERNATIONAL
+            )
+        return phone  # Return original if not valid
+    except NumberParseException:
+        return phone  # Return original if can't parse
 
 def generate_pdf(profile_data, qr_img_bytes, photo_bytes=None):
     """Generate PDF with QR code and photo"""
@@ -74,12 +98,13 @@ def generate_pdf(profile_data, qr_img_bytes, photo_bytes=None):
         fields = [
             ("Name", profile_data.get('full_name', '')),
             ("Email", profile_data.get('email', '')),
-            ("Phone", profile_data.get('phone', '')),
+            ("Primary Phone", profile_data.get('primary_phone', '')),
+            ("Secondary Phone", profile_data.get('secondary_phone', '')),
             ("Profession", profile_data.get('profession', '')),
             ("Expertise", profile_data.get('expertise', '')),
             ("How I Can Help", profile_data.get('how_to_help', '')),
-            ("LinkedIn", profile_data.get('linkedin_url', '')),
-            ("Social Media", profile_data.get('social_media', ''))
+            ("Business URL", profile_data.get('business_url', '')),
+            ("Social Media", profile_data.get('social_media_url', ''))
         ]
         
         for label, value in fields:
@@ -98,7 +123,7 @@ def generate_pdf(profile_data, qr_img_bytes, photo_bytes=None):
         return None
 
 def generate_qr_code(url):
-    """Generate QR code with logo"""
+    """Generate QR code"""
     try:
         qr = qrcode.QRCode(
             version=1,
@@ -118,7 +143,7 @@ def generate_qr_code(url):
         return None
 
 def check_email_exists(email):
-    """Check if email already exists in database"""
+    """Check if email exists in database"""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
@@ -129,30 +154,28 @@ def check_email_exists(email):
     finally:
         conn.close()
 
-def get_profile_by_email(email):
-    """Get profile by email"""
+def save_profile(profile_data):
+    """Save profile to database"""
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("SELECT * FROM members WHERE email=?", (email,))
-        columns = [column[0] for column in c.description]
-        result = c.fetchone()
-        if result:
-            return dict(zip(columns, result))
-        return None
-    except sqlite3.Error:
-        return None
-    finally:
-        conn.close()
-
-def get_all_profiles():
-    """Get all profiles for admin export"""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        df = pd.read_sql_query("SELECT * FROM members", conn)
-        return df
-    except sqlite3.Error:
-        return None
+        
+        c.execute('''INSERT OR REPLACE INTO members 
+                     (id, full_name, email, primary_phone, secondary_phone, 
+                      profession, expertise, how_to_help, business_url, 
+                      social_media_url, photo) 
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                  (profile_data['id'], profile_data['full_name'], 
+                   profile_data['email'], profile_data['primary_phone'],
+                   profile_data['secondary_phone'], profile_data['profession'],
+                   profile_data['expertise'], profile_data['how_to_help'],
+                   profile_data['business_url'], profile_data['social_media_url'],
+                   profile_data.get('photo')))
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        st.error(f"Database error: {str(e)}")
+        return False
     finally:
         conn.close()
 
@@ -162,130 +185,94 @@ st.title("🌍 Karwan-e-Tijarat")
 st.markdown("National Brand Building by helping Pakistanis connect, collaborate, and grow globally")
 st.divider()
 
-# Admin Section
-if st.secrets.get("ADMIN_PASSWORD"):
-    admin_expander = st.expander("Admin Tools")
-    with admin_expander:
-        admin_pass = st.text_input("Enter Admin Password", type="password")
-        if admin_pass == st.secrets["ADMIN_PASSWORD"]:
-            st.success("Admin access granted")
-            if st.button("Export All Data to CSV"):
-                df = get_all_profiles()
-                if df is not None:
-                    csv = df.to_csv(index=False)
-                    b64 = base64.b64encode(csv.encode()).decode()
-                    st.markdown(
-                        f'<a href="data:file/csv;base64,{b64}" download="karwan_tijarat_profiles.csv">Download CSV File</a>',
-                        unsafe_allow_html=True
-                    )
-                else:
-                    st.error("Failed to export data")
-
-# Profile Management Section
-st.subheader("👤 Profile Management")
-profile_mode = st.radio("Select Mode", ["Create New Profile", "Update Existing Profile"])
-
-if profile_mode == "Update Existing Profile":
-    update_email = st.text_input("Enter your registered email to load profile")
-    if st.button("Load Profile"):
-        profile_data = get_profile_by_email(update_email)
-        if profile_data:
-            st.session_state.profile_data = profile_data
-            st.success("Profile loaded successfully!")
-        else:
-            st.error("No profile found with this email")
-
 # --- Profile Form ---
 with st.form("profile_form"):
     st.subheader("📝 Your Profile")
     
-    # Check for existing profile data
-    profile_data = st.session_state.get('profile_data', {})
-    
     # Personal Info
-    full_name = st.text_input("Full Name*", value=profile_data.get('full_name', ''), key="full_name")
-    email = st.text_input("Email*", value=profile_data.get('email', ''), key="email")
+    col1, col2 = st.columns(2)
+    with col1:
+        full_name = st.text_input("Full Name*")
+    with col2:
+        email = st.text_input("Email*")
     
-    # Email validation (immediate feedback)
-    if email:
-        if not validate_email(email):
-            st.warning("Please enter a valid email address")
-        elif check_email_exists(email) and profile_mode == "Create New Profile":
-            st.warning("This email is already registered. Please use 'Update Existing Profile' mode.")
-    
-    phone = st.text_input("Phone", value=profile_data.get('phone', ''), key="phone")
+    # Phone Numbers
+    col1, col2 = st.columns(2)
+    with col1:
+        primary_phone = st.text_input("Primary Phone*", 
+                                    help="Format: +923001234567 or 03001234567")
+    with col2:
+        secondary_phone = st.text_input("Secondary Phone (Optional)",
+                                      help="Format: +923001234567 or 03001234567")
     
     # Photo Upload
-    photo = st.file_uploader("Upload Profile Photo", type=['jpg', 'jpeg', 'png'])
+    photo = st.file_uploader("Profile Photo (Optional)", 
+                           type=['jpg', 'jpeg', 'png'])
     
     # Professional Info
-    profession = st.text_input("Profession*", value=profile_data.get('profession', ''), key="profession")
-    expertise = st.text_area("Areas of Expertise*", value=profile_data.get('expertise', ''), key="expertise")
-    how_to_help = st.text_area("How You Can Help Others*", value=profile_data.get('how_to_help', ''), key="how_to_help")
+    profession = st.text_input("Profession*")
+    expertise = st.text_area("Areas of Expertise*", 
+                           help="List your key skills and expertise areas")
+    how_to_help = st.text_area("How You Can Help Others*", 
+                             help="Describe how you can contribute to the community")
     
-    # Social Media
-    linkedin_url = st.text_input("LinkedIn Profile URL", value=profile_data.get('linkedin_url', ''), key="linkedin_url")
-    social_media = st.text_input("Other Social Media Profile", value=profile_data.get('social_media', ''), key="social_media")
+    # URL Fields
+    business_url = st.text_input("Business/Website URL (Optional)",
+                               placeholder="https://yourbusiness.com")
+    social_media_url = st.text_input("Social Media Profile (Optional)",
+                                   placeholder="https://linkedin.com/in/yourprofile")
     
     submitted = st.form_submit_button("Save Profile")
     st.markdown("*Required fields")
 
 if submitted:
-    # Validate inputs
+    # Validate required fields
     errors = []
     if not full_name:
         errors.append("Full name is required")
     if not email or not validate_email(email):
         errors.append("Valid email is required")
+    if not primary_phone:
+        errors.append("Primary phone is required")
     if not profession:
         errors.append("Profession is required")
-    if linkedin_url and not validate_url(linkedin_url):
-        errors.append("Enter a valid LinkedIn URL")
-    if social_media and not validate_url(social_media):
-        errors.append("Enter a valid social media URL")
+    if not expertise:
+        errors.append("Areas of expertise are required")
+    if not how_to_help:
+        errors.append("Please specify how you can help others")
     
-    # Check for duplicate email in create mode
-    if profile_mode == "Create New Profile" and check_email_exists(email):
-        errors.append("This email is already registered. Please use 'Update Existing Profile' mode.")
+    # Check for duplicate email
+    if email and check_email_exists(email):
+        errors.append("This email is already registered")
     
     if errors:
         for error in errors:
             st.error(error)
     else:
-        try:
-            # Prepare profile data
-            profile_id = profile_data.get('id', str(datetime.now().timestamp()))
-            profile_data = {
-                'id': profile_id,
-                'full_name': full_name,
-                'email': email,
-                'phone': phone,
-                'profession': profession,
-                'expertise': expertise,
-                'how_to_help': how_to_help,
-                'linkedin_url': linkedin_url,
-                'social_media': social_media,
-                'photo': photo.read() if photo else None
-            }
-            
-            # Save to DB
-            conn = sqlite3.connect(DB_PATH)
-            c = conn.cursor()
-            c.execute('''INSERT OR REPLACE INTO members 
-                         (id, full_name, email, phone, profession, expertise, 
-                          how_to_help, linkedin_url, social_media, photo) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                      (profile_id, full_name, email, phone, profession,
-                       expertise, how_to_help, linkedin_url, social_media, 
-                       profile_data['photo']))
-            conn.commit()
-            
+        # Format phone numbers
+        formatted_primary = format_phone_number(primary_phone)
+        formatted_secondary = format_phone_number(secondary_phone) if secondary_phone else None
+        
+        profile_data = {
+            'id': str(datetime.now().timestamp()),
+            'full_name': full_name,
+            'email': email,
+            'primary_phone': formatted_primary,
+            'secondary_phone': formatted_secondary,
+            'profession': profession,
+            'expertise': expertise,
+            'how_to_help': how_to_help,
+            'business_url': business_url if business_url else None,
+            'social_media_url': social_media_url if social_media_url else None,
+            'photo': photo.read() if photo else None
+        }
+        
+        if save_profile(profile_data):
             st.success("Profile saved successfully!")
-            st.session_state.current_profile_id = profile_id
             
             # Generate shareable link
             base_url = st.experimental_get_query_params().get('_', [''])[0]
-            profile_url = f"{base_url}?profile_id={profile_id}"
+            profile_url = f"{base_url}?profile_id={profile_data['id']}"
             qr_img = generate_qr_code(profile_url)
             
             if qr_img:
@@ -298,10 +285,10 @@ if submitted:
                     st.write("**Shareable Link:**")
                     st.markdown(f"[{profile_url}]({profile_url})")
                     st.code(profile_url)
-            
-            # PDF Download
-            if qr_img:
-                pdf_bytes = generate_pdf(profile_data, qr_img, photo_bytes=profile_data['photo'])
+                
+                # PDF Download
+                pdf_bytes = generate_pdf(profile_data, qr_img, 
+                                        photo_bytes=profile_data['photo'])
                 if pdf_bytes:
                     st.download_button(
                         "📄 Download Profile PDF",
@@ -309,25 +296,18 @@ if submitted:
                         file_name=f"{full_name}_profile.pdf",
                         mime="application/pdf"
                     )
-            
-        except sqlite3.Error as e:
-            st.error(f"Database error: {str(e)}")
-        except Exception as e:
-            st.error(f"An unexpected error occurred: {str(e)}")
-        finally:
-            conn.close()
 
 # --- Search Functionality ---
 st.divider()
 st.subheader("🔍 Search Professionals")
 
-search_term = st.text_input("Search by name, profession or expertise", key="search")
-if st.button("Search", key="search_button"):
+search_term = st.text_input("Search by name, profession or expertise")
+if st.button("Search"):
     try:
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
-        c.execute("""SELECT full_name, profession, expertise, email, phone, 
-                      linkedin_url, social_media 
+        c.execute("""SELECT full_name, profession, expertise, email, 
+                      primary_phone, business_url, social_media_url 
                    FROM members 
                    WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
                    (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
@@ -335,15 +315,15 @@ if st.button("Search", key="search_button"):
         
         if results:
             st.write(f"Found {len(results)} professionals:")
-            for name, prof, exp, email, phone, linkedin, social in results:
+            for name, prof, exp, email, phone, business_url, social_url in results:
                 with st.expander(f"{name} - {prof}"):
                     st.write(f"**Expertise:** {exp}")
                     st.write(f"**Email:** {email}")
                     st.write(f"**Phone:** {phone}")
-                    if linkedin:
-                        st.markdown(f"**LinkedIn:** [View Profile]({linkedin})")
-                    if social:
-                        st.markdown(f"**Social Media:** [View Profile]({social})")
+                    if business_url:
+                        st.markdown(f"**Business URL:** [Visit]({business_url})")
+                    if social_url:
+                        st.markdown(f"**Social Media:** [View Profile]({social_url})")
         else:
             st.warning("No matching profiles found")
     except sqlite3.Error as e:
