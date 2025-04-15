@@ -198,8 +198,8 @@ with st.form("profile_form"):
     business_url = st.text_input("Business URL", value=profile_data.get('business_url', ''),
                                placeholder="https://example.com (optional)")
     
-    # Proper form submit button
-    submit_button = st.form_submit_button("Save Profile")
+# Proper form submit button
+submit_button = st.form_submit_button("Save Profile")
 
 if submit_button:
     errors = []
@@ -209,7 +209,7 @@ if submit_button:
         errors.append("Invalid email format")
     elif mode == "Create New" and check_email_exists(email):
         errors.append("Email already exists (use Update mode)")
-    
+
     if errors:
         for error in errors:
             st.error(error)
@@ -227,13 +227,13 @@ if submit_button:
             'how_to_help': how_to_help,
             'business_url': business_url or ''
         }
-        
+
         if save_profile(profile_data):
             st.success("Profile saved!")
             base_url = st.request.host_url  # gets base URL directly
             profile_url = f"{base_url}?profile_id={profile_data['id']}"
             qr_img = generate_qr_code(profile_url)
-            
+
             if qr_img:
                 col1, col2 = st.columns(2)
                 with col1:
@@ -242,7 +242,7 @@ if submit_button:
                     st.write("**Shareable Link:**")
                     st.markdown(f"[{profile_url}]({profile_url})")
                     st.code(profile_url)
-                
+
                 pdf_bytes = generate_pdf(profile_data, qr_img)
                 if pdf_bytes:
                     st.download_button(
@@ -252,24 +252,25 @@ if submit_button:
                         mime="application/pdf"
                     )
 
+# Admin section
 if st.secrets.get("ADMIN_PASSWORD"):
     with st.expander("Admin Tools"):
         admin_pass = st.text_input("Enter Admin Password", type="password")
         if admin_pass == st.secrets["ADMIN_PASSWORD"]:
             if st.button("Export All Data to CSV"):
-    df = get_all_profiles()
-    st.write(f"🔍 Found {len(df)} profiles in database.")
-    if df is not None and not df.empty:
-        csv = df.to_csv(index=False)
-        b64 = base64.b64encode(csv.encode()).decode()
-        st.markdown(
-            f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
-            unsafe_allow_html=True
-        )
-    else:
-        st.warning("No profiles found in database.")
+                df = get_all_profiles()
+                st.write(f"🔍 Found {len(df)} profiles in database.")
+                if df is not None and not df.empty:
+                    csv = df.to_csv(index=False)
+                    b64 = base64.b64encode(csv.encode()).decode()
+                    st.markdown(
+                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
+                        unsafe_allow_html=True
+                    )
+                else:
+                    st.warning("No profiles found in database.")
 
-
+# Search section
 st.divider()
 st.subheader("🔍 Search Professionals")
 search_term = st.text_input("Search by name, profession or expertise")
@@ -278,12 +279,12 @@ if st.button("Search"):
         conn = sqlite3.connect(DB_PATH)
         c = conn.cursor()
         c.execute("""SELECT full_name, profession, expertise, email, 
-                      primary_phone, city, country 
-                   FROM members 
-                   WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
-                   (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
+                        primary_phone, city, country 
+                    FROM members 
+                    WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
+                  (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
         results = c.fetchall()
-        
+
         if results:
             st.write(f"Found {len(results)} professionals:")
             for name, prof, exp, email, phone, city, country in results:
