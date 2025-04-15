@@ -40,16 +40,17 @@ init_db()
 def validate_email(email):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email)
 
-def get_country_code(country_name):
+def get_country_phone_code(country_name):
     try:
-        return f"+{pycountry.countries.get(name=country_name).numeric_phone_code}"
+        country = pycountry.countries.get(name=country_name)
+        return f"+{getattr(country, 'numeric_phone_code', '92')}"
     except:
         return "+92"
 
 def format_phone(phone_str, country_name):
     if not phone_str: return None
     try:
-        country_code = get_country_code(country_name)
+        country_code = get_country_phone_code(country_name)
         if not phone_str.startswith('+'):
             phone_str = f"{country_code}{phone_str.lstrip('0')}"
         parsed = phonenumbers.parse(phone_str, None)
@@ -171,7 +172,7 @@ if mode == "Update Existing":
 with st.form("profile_form"):
     # Set default values safely
     default_country = profile_data.get('country', 'Pakistan')
-    country_list = [c.name for c in pycountry.countries]
+    country_list = [c.name for c in pycountry.countries if hasattr(c, 'name')]
     country_index = country_list.index(default_country) if default_country in country_list else country_list.index("Pakistan")
     
     full_name = st.text_input("Full Name*", value=profile_data.get('full_name', ''))
@@ -183,7 +184,7 @@ with st.form("profile_form"):
     with col2:
         country = st.selectbox("Country", country_list, index=country_index)
     
-    country_code = get_country_code(country)
+    country_code = get_country_phone_code(country)
     primary_phone = st.text_input("Primary Phone*", 
                                 value=profile_data.get('primary_phone', ''),
                                 placeholder=f"{country_code}XXXXXXXXXX")
@@ -197,21 +198,10 @@ with st.form("profile_form"):
     business_url = st.text_input("Business URL", value=profile_data.get('business_url', ''),
                                placeholder="https://example.com (optional)")
     
-    st.markdown("""
-    <script>
-    document.querySelector("select[aria-label='Country']").addEventListener("change", function() {
-        const country = this.value;
-        const codes = {""" + 
-        ','.join([f'"{c.name}":"+{c.numeric_phone_code}"' for c in pycountry.countries]) + 
-        """};
-        document.querySelector("input[aria-label='Primary Phone*']").placeholder = codes[country] + "XXXXXXXXXX";
-    });
-    </script>
-    """, unsafe_allow_html=True)
-    
-    submitted = st.form_submit_button("Save Profile")
+    # Proper form submit button
+    submit_button = st.form_submit_button("Save Profile")
 
-if submitted:
+if submit_button:
     errors = []
     if not all([full_name, email, primary_phone, profession, expertise, how_to_help]):
         errors.append("Missing required fields")
