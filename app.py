@@ -230,7 +230,7 @@ if submit_button:
         
         if save_profile(profile_data):
             st.success("Profile saved!")
-            base_url = st.query_params.get('_', [''])[0]
+            base_url = st.request.host_url  # gets base URL directly
             profile_url = f"{base_url}?profile_id={profile_data['id']}"
             qr_img = generate_qr_code(profile_url)
             
@@ -257,14 +257,18 @@ if st.secrets.get("ADMIN_PASSWORD"):
         admin_pass = st.text_input("Enter Admin Password", type="password")
         if admin_pass == st.secrets["ADMIN_PASSWORD"]:
             if st.button("Export All Data to CSV"):
-                df = get_all_profiles()
-                if df is not None:
-                    csv = df.to_csv(index=False)
-                    b64 = base64.b64encode(csv.encode()).decode()
-                    st.markdown(
-                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
-                        unsafe_allow_html=True
-                    )
+    df = get_all_profiles()
+    st.write(f"🔍 Found {len(df)} profiles in database.")
+    if df is not None and not df.empty:
+        csv = df.to_csv(index=False)
+        b64 = base64.b64encode(csv.encode()).decode()
+        st.markdown(
+            f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">Download CSV</a>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.warning("No profiles found in database.")
+
 
 st.divider()
 st.subheader("🔍 Search Professionals")
