@@ -230,7 +230,7 @@ if submit_button:
         
         if save_profile(profile_data):
             st.success("Profile saved!")
-            base_url = st.query_params().get('_', [''])[0]
+            base_url = st.query_params.get('_', [''])[0]
             profile_url = f"{base_url}?profile_id={profile_data['id']}"
             qr_img = generate_qr_code(profile_url)
             
