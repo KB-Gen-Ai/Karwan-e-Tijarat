@@ -1,13 +1,23 @@
 import sqlite3
-from datetime import datetime
+from typing import Optional, List, Dict, Any
 
 DB_PATH = "karwan_tijarat.db"
+SCHEMA_VERSION = 2  # Increment this when schema changes
 
 def init_db():
-    """Initialize the database with required tables"""
+    """Initialize database with proper schema"""
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     
+    # Create version table if not exists
+    c.execute("CREATE TABLE IF NOT EXISTS db_version (version INTEGER)")
+    
+    # Get current version
+    c.execute("SELECT version FROM db_version LIMIT 1")
+    result = c.fetchone()
+    current_version = result[0] if result else 0
+    
+    # Create members table with all columns
     c.execute('''CREATE TABLE IF NOT EXISTS members
                  (id TEXT PRIMARY KEY,
                   full_name TEXT NOT NULL,
@@ -20,75 +30,30 @@ def init_db():
                   social_media TEXT,
                   photo BLOB,
                   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+    
+    # Upgrade schema if needed
+    if current_version < SCHEMA_VERSION:
+        try:
+            # Add missing columns
+            c.execute("PRAGMA table_info(members)")
+            columns = [col[1] for col in c.fetchall()]
+            
+            if 'linkedin_url' not in columns:
+                c.execute("ALTER TABLE members ADD COLUMN linkedin_url TEXT")
+            
+            if 'social_media' not in columns:
+                c.execute("ALTER TABLE members ADD COLUMN social_media TEXT")
+                
+            if 'photo' not in columns:
+                c.execute("ALTER TABLE members ADD COLUMN photo BLOB")
+            
+            # Update version
+            c.execute("DELETE FROM db_version")
+            c.execute("INSERT INTO db_version (version) VALUES (?)", (SCHEMA_VERSION,))
+            conn.commit()
+        except sqlite3.Error as e:
+            conn.rollback()
+            raise RuntimeError(f"Database upgrade failed: {str(e)}")
+    
     conn.commit()
     conn.close()
-
-def save_profile(profile_data):
-    """Save or update a profile"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    try:
-        c.execute('''INSERT OR REPLACE INTO members 
-                     (id, full_name, email, phone, profession, expertise, 
-                      how_to_help, linkedin_url, social_media, photo) 
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                  (profile_data['id'], profile_data['full_name'], 
-                   profile_data['email'], profile_data['phone'],
-                   profile_data['profession'], profile_data['expertise'],
-                   profile_data['how_to_help'], profile_data['linkedin_url'],
-                   profile_data['social_media'], profile_data.get('photo')))
-        conn.commit()
-        return True
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return False
-    finally:
-        conn.close()
-
-def get_profile_by_email(email):
-    """Retrieve profile by email"""
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row  # For dictionary-like access
-    c = conn.cursor()
-    
-    try:
-        c.execute("SELECT * FROM members WHERE email=?", (email,))
-        return c.fetchone()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return None
-    finally:
-        conn.close()
-
-def search_profiles(search_term):
-    """Search profiles by name, profession or expertise"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    try:
-        c.execute("""SELECT full_name, profession, expertise, email, phone, 
-                      linkedin_url, social_media 
-                   FROM members 
-                   WHERE full_name LIKE ? OR profession LIKE ? OR expertise LIKE ?""",
-                   (f"%{search_term}%", f"%{search_term}%", f"%{search_term}%"))
-        return c.fetchall()
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return []
-    finally:
-        conn.close()
-
-def export_to_csv():
-    """Export all data to pandas DataFrame"""
-    conn = sqlite3.connect(DB_PATH)
-    try:
-        return pd.read_sql_query("SELECT * FROM members", conn)
-    except sqlite3.Error as e:
-        print(f"Database error: {e}")
-        return None
-    finally:
-        conn.close()
-
-# Initialize the database when this module is imported
-init_db()
