@@ -34,7 +34,7 @@ def get_country_phone_code(country_name):
         country = pycountry.countries.get(name=country_name)
         return f"+{phonenumbers.country_code_for_region(country.alpha_2)}"
     except:
-        return "+92"  # Default to Pakistan
+        return ""  # Default to empty
 
 def format_phone(phone_str, country_name):
     if not phone_str: return ''
