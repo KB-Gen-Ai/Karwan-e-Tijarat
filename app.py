@@ -34,7 +34,7 @@ def get_country_phone_code(country_name):
         country = pycountry.countries.get(name=country_name)
         return f"+{phonenumbers.country_code_for_region(country.alpha_2)}"
     except:
-        return ""  # Default to empty
+        return "+92"  # Default to Pakistan
 
 def format_phone(phone_str, country_name):
     if not phone_str: return ''
@@ -143,16 +143,18 @@ if mode == "Update Existing":
     email_to_update = st.text_input("Enter your registered email")
     if st.button("Load Profile"):
         if email_to_update:
-            profile_data = get_profile_by_email(email_to_update)
-            if profile_data:
-                st.success("Profile loaded!")
-            else:
-                st.error("No profile found with this email")
+    profile_data = get_profile_by_email(email_to_update)
+    if not profile_data:
+        profile_data = {}  # 🛠 Ensure it's a dict to avoid AttributeError
+        st.error("No profile found with this email")
+    else:
+        st.success("Profile loaded!")
+
 
 form = st.form(key='profile_form')
 with form:
     country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
-    default_country = profile_data.get('country', '')
+    default_country = profile_data.get('country', 'Pakistan')
     
     col1, col2 = form.columns(2)
     with col1:
