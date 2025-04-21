@@ -86,15 +86,27 @@ def generate_pdf(profile_data, qr_img_bytes):
     ]
     
     for label, value in fields:
-        if value:
-            p.setFont("Helvetica-Bold", 12)
-            p.drawString(50, y, f"{label}:")
-            text = p.beginText(150, y)
-            text.setFont("Helvetica", 12)
-            text.textLine(str(value))
-            p.drawText(text)
-            y -= line_spacing
-    
+    if value:
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(50, y, f"{label}:")
+        text = p.beginText(150, y)
+        text.setFont("Helvetica", 12)
+
+        # ✅ Wrap long text into multiple lines (max width ~380px)
+        lines = str(value).split('\n')
+        for line in lines:
+            wrapped = []
+            while len(line) > 80:
+                wrapped.append(line[:80])
+                line = line[80:]
+            wrapped.append(line)
+
+            for subline in wrapped:
+                text.textLine(subline)
+                y -= line_spacing
+                
+        p.drawText(text)
+        y -= 6  # Extra spacing between fields
     p.save()
     buffer.seek(0)
     return buffer.getvalue()
@@ -155,10 +167,11 @@ if mode == "Update Existing":
         if email_to_update:
             profile_data = get_profile_by_email(email_to_update)
             if not profile_data:
-                profile_data = {}  # 🛠 Ensure it's a dict to avoid AttributeError
+                profile_data = st.session_state.get("loaded_profile", {})  # 🛠 Ensure it's a dict to avoid AttributeError
                 st.error("No profile found with this email")
             else:
                 st.success("Profile loaded!")
+                st.session_state["loaded_profile"] = profile_data
 
 # ✅ Clear form if flagged from previous rerun
 if st.session_state.get("form_reset"):
@@ -192,6 +205,11 @@ with form:
 
     full_name = form.text_input("Full Name*", value=profile_data.get('full_name', ''))
     email = form.text_input("Email*", value=profile_data.get('email', ''))
+
+# ✅ Instant email check in Create mode
+if mode == "Create New" and email:
+    if get_profile_by_email(email):
+        st.warning("⚠️ This email already exists. Try 'Update Existing' mode.")
     profession = form.text_input("Profession*", value=profile_data.get('profession', ''))
     expertise = form.text_area("Expertise*", value=profile_data.get('expertise', ''))
     how_to_help = form.text_area("How I Can Help*", value=profile_data.get('how_to_help', ''))
@@ -230,7 +248,7 @@ if submitted:
         if save_profile(profile_data):
             st.success("Profile saved successfully!")
             base_url = "https://karwan-e-tijarat.streamlit.app/"  # Adjust if deploying elsewhere
-            profile_url = f"{base_url}?profile_id={profile_data['id']}"
+            profile_url = f"https://karwan-e-tijarat.streamlit.app/?profile_id={profile_data['id']}"
 
             col1, col2 = st.columns(2)
             with col1:
