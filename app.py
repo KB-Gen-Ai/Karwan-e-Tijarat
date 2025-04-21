@@ -152,7 +152,7 @@ if mode == "Update Existing":
 form = st.form(key='profile_form')
 with form:
     country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
-    default_country = profile_data.get('country', 'Pakistan')
+    default_country = profile_data.get('country', '')
     
     col1, col2 = form.columns(2)
     with col1:
