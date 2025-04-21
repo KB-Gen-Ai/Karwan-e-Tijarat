@@ -47,6 +47,16 @@ def format_phone(phone_str, country_name):
     except NumberParseException:
         return phone_str
 
+from datetime import datetime
+
+def generate_custom_profile_id(full_name):
+    from database import get_all_profiles
+    df = get_all_profiles()
+    seq = len(df) + 1  # Sequence number
+    initials = ''.join([w[0].upper() for w in full_name.split() if w])[:3]
+    date_code = datetime.now().strftime("%d%m%y")
+    return f"{seq}-{initials}-{date_code}"
+
 def generate_pdf(profile_data, qr_img_bytes):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
@@ -203,7 +213,7 @@ if submitted:
         for error in errors: st.error(error)
     else:
         profile_data = {
-            'id': profile_data.get('id', str(uuid.uuid4())),
+            'id': profile_data.get('id', generate_custom_profile_id(full_name)),
             'full_name': full_name,
             'email': email,
             'city': city,
