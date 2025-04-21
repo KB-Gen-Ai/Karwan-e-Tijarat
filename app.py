@@ -150,6 +150,10 @@ if mode == "Update Existing":
             else:
                 st.success("Profile loaded!")
 
+# ✅ Clear form if flagged from previous rerun
+if st.session_state.get("form_reset"):
+    st.session_state.clear()
+
 form = st.form(key='profile_form')
 with form:
     country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
@@ -212,10 +216,10 @@ if submitted:
             'help_needed': help_needed,
             'business_url': business_url
         }
-
+        
         if save_profile(profile_data):
             st.success("Profile saved successfully!")
-            base_url = "https://karwan.streamlit.app"  # Adjust if deploying elsewhere
+            base_url = "https://karwan-e-tijarat.streamlit.app/"  # Adjust if deploying elsewhere
             profile_url = f"{base_url}?profile_id={profile_data['id']}"
 
             col1, col2 = st.columns(2)
@@ -228,10 +232,17 @@ if submitted:
                 st.code(profile_url)
 
             pdf_bytes = generate_pdf(profile_data, qr_img)
-            st.download_button("📄 Download Profile PDF", data=pdf_bytes, file_name=f"{full_name}_profile.pdf", mime="application/pdf")
+            st.download_button(
+                "📄 Download Profile PDF",
+                data=pdf_bytes,
+                file_name=f"{full_name}_profile.pdf",
+                mime="application/pdf"
+            )
 
-            st.session_state.clear()
-            st.experimental_rerun()
+            # ✅ Clear form inputs and trigger rerun
+            st.session_state["form_reset"] = True
+            st.rerun()
+
 
 # Admin Section
 if st.secrets.get("ADMIN_PASSWORD"):
