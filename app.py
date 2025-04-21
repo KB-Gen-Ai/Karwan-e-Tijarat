@@ -146,12 +146,12 @@ if st.button("Load Profile"):
     
 if email_to_update:
     profile_data = get_profile_by_email(email_to_update)
+    
     if not profile_data:
         profile_data = {}  # 🛠 Ensure it's a dict to avoid AttributeError
         st.error("No profile found with this email")
     else:
         st.success("Profile loaded!")
-
 
 form = st.form(key='profile_form')
 with form:
