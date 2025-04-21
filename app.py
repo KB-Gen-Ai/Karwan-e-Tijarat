@@ -141,7 +141,8 @@ profile_data = {}
 
 if mode == "Update Existing":
     email_to_update = st.text_input("Enter your registered email")
-    if st.button("Load Profile"):
+    
+if st.button("Load Profile"):
     if email_to_update:
     profile_data = get_profile_by_email(email_to_update)
     if not profile_data:
