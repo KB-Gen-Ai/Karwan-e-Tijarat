@@ -1,4 +1,8 @@
 import streamlit as st
+
+# ✅ Must be the first Streamlit command
+st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
+
 import sqlite3
 from io import BytesIO
 import uuid
@@ -14,13 +18,11 @@ from phonenumbers import NumberParseException
 import pycountry
 from geopy.geocoders import Nominatim
 
-st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
-
 from database import init_db, migrate_db, get_profile_by_id, get_profile_by_email, save_profile, get_all_profiles, search_profiles
 
 DB_PATH = "karwan_tijarat.db"
 
-# Initialize database with migrations
+# ✅ Initialize database with migrations
 init_db()
 migrate_db()
 
@@ -49,16 +51,13 @@ def generate_pdf(profile_data, qr_img_bytes):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=letter)
     
-    # Header Section
     p.setFont("Helvetica-Bold", 18)
     p.drawCentredString(300, 780, "Karwan-e-Tijarat Profile")
     p.line(50, 770, 550, 770)
     
-    # QR Code
     if qr_img_bytes:
         p.drawImage(ImageReader(BytesIO(qr_img_bytes)), 400, 600, width=120, height=120)
     
-    # Profile Content
     y = 700
     line_spacing = 18
     p.setFont("Helvetica", 12)
@@ -104,7 +103,7 @@ def generate_qr_code(url):
         return None
 
 # Profile View Handler
-query_params = st.experimental_get_query_params()
+query_params = st.query_params
 if 'profile_id' in query_params:
     profile = get_profile_by_id(query_params['profile_id'][0])
     if profile:
@@ -112,7 +111,7 @@ if 'profile_id' in query_params:
         with st.container():
             col1, col2 = st.columns([1, 3])
             with col1:
-                qr_img = generate_qr_code(st.experimental_get_query_params()['profile_id'][0])
+                qr_img = generate_qr_code(query_params['profile_id'][0])
                 if qr_img:
                     st.image(qr_img, width=200)
             with col2:
@@ -135,7 +134,6 @@ if 'profile_id' in query_params:
         st.stop()
 
 # Main App
-st.set_page_config(page_title="Karwan-e-Tijarat", layout="centered")
 st.title("🌍 Karwan-e-Tijarat")
 
 mode = st.radio("Profile Mode", ["Create New", "Update Existing"], horizontal=True)
@@ -153,45 +151,30 @@ if mode == "Update Existing":
 
 form = st.form(key='profile_form')
 with form:
-    # Country and City Handling
     country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
     default_country = profile_data.get('country', 'Pakistan')
     
     col1, col2 = form.columns(2)
     with col1:
-        country = form.selectbox(
-            "Country*",
-            country_list,
-            index=country_list.index(default_country) if default_country in country_list else 0
-        )
+        country = form.selectbox("Country*", country_list, index=country_list.index(default_country) if default_country in country_list else 0)
     with col2:
         geolocator = Nominatim(user_agent="karwan_tijarat")
         try:
             location = geolocator.geocode(country)
             if location:
-                city = form.text_input("City*", value=profile_data.get('city', ''))  # Simplified city input
+                city = form.text_input("City*", value=profile_data.get('city', ''))
             else:
                 city = form.text_input("City*", value=profile_data.get('city', ''))
         except:
             city = form.text_input("City*", value=profile_data.get('city', ''))
 
-    # Phone Number Handling
     phone_code = get_country_phone_code(country)
     col1, col2 = form.columns(2)
     with col1:
-        primary_phone = form.text_input(
-            f"Primary Phone* ({phone_code})", 
-            value=profile_data.get('primary_phone', '').replace(phone_code, ''),
-            placeholder="XXXXXXXXXX"
-        )
+        primary_phone = form.text_input(f"Primary Phone* ({phone_code})", value=profile_data.get('primary_phone', '').replace(phone_code, ''), placeholder="XXXXXXXXXX")
     with col2:
-        secondary_phone = form.text_input(
-            "Secondary Phone", 
-            value=profile_data.get('secondary_phone', ''),
-            placeholder="Optional"
-        )
+        secondary_phone = form.text_input("Secondary Phone", value=profile_data.get('secondary_phone', ''), placeholder="Optional")
 
-    # Other Fields
     full_name = form.text_input("Full Name*", value=profile_data.get('full_name', ''))
     email = form.text_input("Email*", value=profile_data.get('email', ''))
     profession = form.text_input("Profession*", value=profile_data.get('profession', ''))
@@ -228,12 +211,12 @@ if submitted:
             'help_needed': help_needed,
             'business_url': business_url
         }
-        
+
         if save_profile(profile_data):
             st.success("Profile saved successfully!")
-            base_url = st.experimental_get_query_params().get('_', [''])[0]
+            base_url = "https://karwan.streamlit.app"  # Adjust if deploying elsewhere
             profile_url = f"{base_url}?profile_id={profile_data['id']}"
-            
+
             col1, col2 = st.columns(2)
             with col1:
                 qr_img = generate_qr_code(profile_url)
@@ -242,15 +225,10 @@ if submitted:
             with col2:
                 st.markdown("**Shareable Profile URL:**")
                 st.code(profile_url)
-            
+
             pdf_bytes = generate_pdf(profile_data, qr_img)
-            st.download_button(
-                "📄 Download Profile PDF",
-                data=pdf_bytes,
-                file_name=f"{full_name}_profile.pdf",
-                mime="application/pdf"
-            )
-            
+            st.download_button("📄 Download Profile PDF", data=pdf_bytes, file_name=f"{full_name}_profile.pdf", mime="application/pdf")
+
             st.session_state.clear()
             st.experimental_rerun()
 
@@ -264,10 +242,7 @@ if st.secrets.get("ADMIN_PASSWORD"):
                 if not df.empty:
                     csv = df.to_csv(index=False)
                     b64 = base64.b64encode(csv.encode()).decode()
-                    st.markdown(
-                        f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">📥 Download CSV</a>',
-                        unsafe_allow_html=True
-                    )
+                    st.markdown(f'<a href="data:file/csv;base64,{b64}" download="karwan_profiles.csv">📥 Download CSV</a>', unsafe_allow_html=True)
                 else:
                     st.warning("Database is empty")
 
@@ -292,7 +267,7 @@ if st.button("Search"):
                         if row['business_url']:
                             st.markdown(f"[Website]({row['business_url']})")
                     if st.button("Download PDF", key=f"pdf_{row['id']}"):
-                        pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"?profile_id={row['id']}"))
+                        pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"https://karwan.streamlit.app?profile_id={row['id']}"))
                         st.download_button(
                             label="Download",
                             data=pdf_bytes,
