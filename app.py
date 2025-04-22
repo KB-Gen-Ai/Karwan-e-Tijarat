@@ -102,6 +102,14 @@ def generate_pdf(profile_data, qr_img_bytes):
             wrapped.append(line)
 
             for subline in wrapped:
+                if y < 50:
+                    p.showPage()
+                    y = 750
+                    p.setFont("Helvetica", 12)
+                    p.setFont("Helvetica-Bold", 12)
+                    p.drawString(50, y, f"{label}:")
+                    y -= line_spacing
+                    p.setFont("Helvetica", 12)
                 text.textLine(subline)
                 y -= line_spacing
                 
@@ -126,34 +134,37 @@ def generate_qr_code(url):
 
 # Profile View Handler
 query_params = st.query_params
-if 'profile_id' in query_params:
-    profile = get_profile_by_id(query_params['profile_id'][0])
+profile_id = query_params.get("profile_id", [None])[0]
+
+if profile_id:
+    profile = get_profile_by_id(profile_id)
     if profile:
         st.title(f"Profile: {profile['full_name']}")
         with st.container():
             col1, col2 = st.columns([1, 3])
             with col1:
-                qr_img = generate_qr_code(query_params['profile_id'][0])
+                qr_img = generate_qr_code(f"https://karwan-e-tijarat.streamlit.app/?profile_id={profile_id}")
                 if qr_img:
                     st.image(qr_img, width=200)
             with col2:
                 st.markdown(f"**Profession:** {profile['profession']}")
                 st.markdown(f"**Location:** {profile['city']}, {profile['country']}")
                 st.markdown(f"**Expertise:** {profile['expertise']}")
-                
+        
         with st.expander("Contact Details"):
             st.write(f"**Email:** {profile['email']}")
             st.write(f"**Primary Phone:** {profile['primary_phone']}")
             if profile['secondary_phone']:
                 st.write(f"**Secondary Phone:** {profile['secondary_phone']}")
-                
+        
         with st.expander("How I Can Help"):
             st.write(profile['how_to_help'])
-            
+        
         with st.expander("Help Needed"):
             st.write(profile['help_needed'] or "Not specified")
         
         st.stop()
+
 
 # Main App
 st.title("🌍 Karwan-e-Tijarat")
@@ -302,8 +313,10 @@ if submitted:
             import time
             time.sleep(3)
 
-            st.session_state["form_reset"] = True
-            st.rerun()
+            st.info("✅ You can now update another profile or use the menu above.")
+            if st.button("Reset Form"):
+                st.session_state["form_reset"] = True
+                st.rerun()
 
 # Admin Section
 if st.secrets.get("ADMIN_PASSWORD"):
