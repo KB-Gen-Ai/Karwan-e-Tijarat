@@ -159,7 +159,7 @@ if 'profile_id' in query_params:
 st.title("🌍 Karwan-e-Tijarat")
 
 mode = st.radio("Profile Mode", ["Create New", "Update Existing"], horizontal=True)
-profile_data = {}
+profile_data = st.session_state.get("loaded_profile", {})
 
 if mode == "Update Existing":
     email_to_update = st.text_input("Enter your registered email")
@@ -176,6 +176,17 @@ if mode == "Update Existing":
 # ✅ Clear form if flagged from previous rerun
 if st.session_state.get("form_reset"):
     st.session_state.clear()
+
+# Instant check for duplicate email BEFORE form loads
+if mode == "Create New":
+    email_check = st.text_input("Enter Email to Check Availability")
+    if email_check:
+        existing = get_profile_by_email(email_check)
+        if existing:
+            st.error("⚠️ Email already exists! Please use 'Update Existing' mode.")
+            st.stop()
+        else:
+            st.success("✅ Email is available. You can proceed to create profile.")
 
 form = st.form(key='profile_form')
 with form:
@@ -305,7 +316,12 @@ if st.button("Search"):
                         st.write(f"**Expertise:** {row['expertise']}")
                         st.write(f"**Contact:** {row['email']}")
                         if row['business_url']:
-                            st.markdown(f"[Website]({row['business_url']})")
+                            st.markdown(f"🌐 [Visit Business Website]({row['business_url']})")
+
+# Add this below to allow going to profile:
+                            profile_link = f"https://karwan-e-tijarat.streamlit.app?profile_id={row['id']}"
+                            st.markdown(f"🔗 [View Profile Page]({profile_link})")
+
                     if st.button("Download PDF", key=f"pdf_{row['id']}"):
                         pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"https://karwan.streamlit.app?profile_id={row['id']}"))
                         st.download_button(
