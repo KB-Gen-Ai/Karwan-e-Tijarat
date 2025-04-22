@@ -177,17 +177,19 @@ if mode == "Update Existing":
 if st.session_state.get("form_reset"):
     st.session_state.clear()
 
-# Instant check for duplicate email BEFORE form loads
+# ✅ Instant check for duplicate email BEFORE form loads
 if mode == "Create New":
     email_check = st.text_input("Enter Email to Check Availability")
+
     if email_check:
         existing = get_profile_by_email(email_check)
         if existing:
-            st.error("⚠️ Email already exists! Please use 'Update Existing' mode.")
-            st.stop()
+            st.warning("⚠️ Email already exists! Please use 'Update Existing' mode.")
         else:
             st.success("✅ Email is available. You can proceed to create profile.")
-
+    else:
+        st.info("ℹ️ Please enter an email to check availability.")
+        
 form = st.form(key='profile_form')
 with form:
     country_list = sorted([c.name for c in pycountry.countries if hasattr(c, 'name')])
@@ -292,10 +294,16 @@ if submitted:
                 mime="application/pdf"
             )
 
-            # ✅ Clear form inputs and trigger rerun
+            # ✅ Show created profile before refreshing
+            st.success("🎉 Profile created successfully!")
+            st.markdown(f"🔗 [View Your Profile](https://karwan-e-tijarat.streamlit.app/?profile_id={profile_data['id']})")
+
+            # Optional: Delay for visibility before refresh
+            import time
+            time.sleep(3)
+
             st.session_state["form_reset"] = True
             st.rerun()
-
 
 # Admin Section
 if st.secrets.get("ADMIN_PASSWORD"):
@@ -339,7 +347,7 @@ if st.button("Search"):
                     if st.button("Download PDF", key=f"pdf_{row['id']}"):
                         pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"https://karwan-e-tijarat.streamlit.app?profile_id={row['id']}"))
                         st.download_button(
-                            label="Download",
+                            label="📄 Download Profile PDF",
                             data=pdf_bytes,
                             file_name=f"{row['full_name']}_profile.pdf",
                             mime="application/pdf",
