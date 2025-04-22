@@ -218,16 +218,30 @@ with form:
     email = form.text_input("Email*", value=profile_data.get('email', ''))
 
 # ✅ Instant email check in Create mode
-if mode == "Create New" and email:
-    if get_profile_by_email(email):
-        st.warning("⚠️ This email already exists. Try 'Update Existing' mode.")
-    profession = form.text_input("Profession*", value=profile_data.get('profession', ''))
-    expertise = form.text_area("Expertise*", value=profile_data.get('expertise', ''))
-    how_to_help = form.text_area("How I Can Help*", value=profile_data.get('how_to_help', ''))
-    help_needed = form.text_area("What Help Do I Need?", value=profile_data.get('help_needed', ''))
-    business_url = form.text_input("Business URL", value=profile_data.get('business_url', ''), placeholder="https://example.com")
-    
+email_exists = False
+if mode == "Create New":
+    if email:
+        if get_profile_by_email(email):
+            email_exists = True
+            st.warning("⚠️ This email already exists. Try 'Update Existing' mode.")
+
+    profession = form.text_input("Profession*", value=profile_data.get('profession', ''), key="profession")
+    expertise = form.text_area("Expertise*", value=profile_data.get('expertise', ''), key="expertise")
+    how_to_help = form.text_area("How I Can Help*", value=profile_data.get('how_to_help', ''), key="how_to_help")
+    help_needed = form.text_area("What Help Do I Need?", value=profile_data.get('help_needed', ''), key="help_needed")
+    business_url = form.text_input("Business URL", value=profile_data.get('business_url', ''), placeholder="https://example.com", key="business_url")
+
     submitted = form.form_submit_button("Save Profile")
+
+elif mode == "Update Existing":
+    profession = form.text_input("Profession*", value=profile_data.get('profession', ''), key="profession")
+    expertise = form.text_area("Expertise*", value=profile_data.get('expertise', ''), key="expertise")
+    how_to_help = form.text_area("How I Can Help*", value=profile_data.get('how_to_help', ''), key="how_to_help")
+    help_needed = form.text_area("What Help Do I Need?", value=profile_data.get('help_needed', ''), key="help_needed")
+    business_url = form.text_input("Business URL", value=profile_data.get('business_url', ''), placeholder="https://example.com", key="business_url")
+
+    submitted = form.form_submit_button("Save Profile")
+
 
 if submitted:
     errors = []
