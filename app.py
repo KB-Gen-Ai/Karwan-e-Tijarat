@@ -86,7 +86,7 @@ def generate_pdf(profile_data, qr_img_bytes):
     ]
     
     for label, value in fields:
-    if value:
+        if value:
         p.setFont("Helvetica-Bold", 12)
         p.drawString(50, y, f"{label}:")
         text = p.beginText(150, y)
@@ -323,7 +323,7 @@ if st.button("Search"):
                             st.markdown(f"🔗 [View Profile Page]({profile_link})")
 
                     if st.button("Download PDF", key=f"pdf_{row['id']}"):
-                        pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"https://karwan.streamlit.app?profile_id={row['id']}"))
+                        pdf_bytes = generate_pdf(row.to_dict(), generate_qr_code(f"https://karwan-e-tijarat.streamlit.app?profile_id={row['id']}"))
                         st.download_button(
                             label="Download",
                             data=pdf_bytes,
