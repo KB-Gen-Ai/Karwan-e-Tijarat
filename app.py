@@ -87,10 +87,10 @@ def generate_pdf(profile_data, qr_img_bytes):
     
     for label, value in fields:
         if value:
-        p.setFont("Helvetica-Bold", 12)
-        p.drawString(50, y, f"{label}:")
-        text = p.beginText(150, y)
-        text.setFont("Helvetica", 12)
+            p.setFont("Helvetica-Bold", 12)
+            p.drawString(50, y, f"{label}:")
+            text = p.beginText(150, y)
+            text.setFont("Helvetica", 12)
 
         # ✅ Wrap long text into multiple lines (max width ~380px)
         lines = str(value).split('\n')
